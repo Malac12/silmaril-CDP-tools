@@ -56,7 +56,7 @@ if (-not ($runtimeProps -contains "value")) {
       if ($itemProps -contains "value") {
         $textValue = $item.value
         if ($null -ne $textValue) {
-          Write-Output ([string]$textValue)
+          Write-SilmarilCommandResult -Command "get-text" -Text ([string]$textValue) -Data @{ selector = $selector; text = [string]$textValue }
           exit 0
         }
       }
@@ -68,7 +68,7 @@ if (-not ($runtimeProps -contains "value")) {
           if ($nestedProps -contains "value") {
             $textValue = $nested.value
             if ($null -ne $textValue) {
-              Write-Output ([string]$textValue)
+              Write-SilmarilCommandResult -Command "get-text" -Text ([string]$textValue) -Data @{ selector = $selector; text = [string]$textValue }
               exit 0
             }
           }
@@ -88,4 +88,5 @@ if ($null -eq $text) {
   throw "No element matched selector: $selector"
 }
 
-Write-Output ([string]$text)
+Write-SilmarilCommandResult -Command "get-text" -Text ([string]$text) -Data @{ selector = $selector; text = [string]$text }
+

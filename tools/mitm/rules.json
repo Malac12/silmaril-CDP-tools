@@ -1,0 +1,14 @@
+{
+    "rules":  [
+                  {
+                      "match":  "https://www\\\\.example\\\\.com/assets/app\\\\.js$",
+                      "file":  "D:\\silmairl cdp\\test-page.html",
+                      "status":  200
+                  },
+                  {
+                      "match":  "https://en\\.wikipedia\\.org/wiki/Pizza(?:\\?.*)?$",
+                      "file":  "D:\\silmairl cdp\\tools\\mitm\\overrides\\pizza.override.html",
+                      "status":  200
+                  }
+              ]
+}

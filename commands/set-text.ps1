@@ -8,20 +8,77 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
 
-if ($RemainingArgs.Count -ne 3) {
-  throw "set-text requires exactly three arguments: ""selector"" ""text"" --yes"
+$usage = "set-text requires: ""selector"" ""text"" --yes, or ""selector"" --text-file ""path"" --yes"
+if ($RemainingArgs.Count -lt 3) {
+  throw $usage
 }
 
 $selector = $RemainingArgs[0]
-$textValue = $RemainingArgs[1]
-$confirmation = $RemainingArgs[2]
-
+$confirmation = $RemainingArgs[$RemainingArgs.Count - 1]
 if ([string]::IsNullOrWhiteSpace($selector)) {
   throw "Selector cannot be empty."
 }
 
 if ($confirmation -ne "--yes") {
   throw "set-text requires explicit confirmation flag --yes"
+}
+
+$payloadArgs = @()
+if ($RemainingArgs.Count -gt 2) {
+  $payloadArgs = $RemainingArgs[1..($RemainingArgs.Count - 2)]
+}
+
+$maxPayloadBytes = 1048576
+$textValue = $null
+$inputMode = "inline"
+$filePath = $null
+$payloadBytes = 0
+
+$fileFlags = @("--text-file", "--file")
+$hasFileFlag = $false
+foreach ($arg in $payloadArgs) {
+  foreach ($fileFlag in $fileFlags) {
+    if ([string]::Equals([string]$arg, $fileFlag, [System.StringComparison]::OrdinalIgnoreCase)) {
+      $hasFileFlag = $true
+      break
+    }
+  }
+  if ($hasFileFlag) { break }
+}
+
+if ($payloadArgs.Count -eq 1) {
+  $arg0 = [string]$payloadArgs[0]
+  if ($hasFileFlag) {
+    throw "set-text file mode requires a file path after --text-file/--file"
+  }
+
+  $textValue = $arg0
+  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($textValue)
+}
+elseif ($payloadArgs.Count -eq 2) {
+  $flag = [string]$payloadArgs[0]
+  if (
+    [string]::Equals($flag, "--text-file", [System.StringComparison]::OrdinalIgnoreCase) -or
+    [string]::Equals($flag, "--file", [System.StringComparison]::OrdinalIgnoreCase)
+  ) {
+    $loaded = Read-SilmarilTextFile -Path ([string]$payloadArgs[1]) -Label "Text" -MaxBytes $maxPayloadBytes
+    $filePath = [string]$loaded.path
+    $textValue = [string]$loaded.content
+    $payloadBytes = [int64]$loaded.bytes
+    $inputMode = "file"
+  }
+  else {
+    if ($hasFileFlag) {
+      throw "set-text does not allow combining inline text with --text-file/--file"
+    }
+    throw $usage
+  }
+}
+else {
+  if ($hasFileFlag) {
+    throw "set-text does not allow combining inline text with --text-file/--file"
+  }
+  throw $usage
 }
 
 $selectorJs = $selector | ConvertTo-Json -Compress
@@ -37,6 +94,17 @@ $evalResult = Invoke-SilmarilCdpCommand -Target $target -Method "Runtime.evaluat
 
 if (-not $evalResult) {
   throw "No mutation result returned from CDP."
+}
+
+$resultData = [ordered]@{
+  selector  = $selector
+  inputMode = $inputMode
+  bytes     = $payloadBytes
+  text      = $textValue
+}
+if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
+  $resultData["filePath"] = $filePath
+  $resultData["textFile"] = $filePath
 }
 
 $evalProps = @(Get-SilmarilPropertyNames -InputObject $evalResult)
@@ -72,7 +140,7 @@ if (-not ($runtimeProps -contains "value")) {
           throw "No element matched selector: $selector"
         }
 
-        Write-Host "Updated text for selector: $selector"
+        Write-SilmarilCommandResult -Command "set-text" -Text "Updated text for selector: $selector" -Data $resultData -UseHost
         exit 0
       }
 
@@ -91,7 +159,7 @@ if (-not ($runtimeProps -contains "value")) {
               throw "No element matched selector: $selector"
             }
 
-            Write-Host "Updated text for selector: $selector"
+            Write-SilmarilCommandResult -Command "set-text" -Text "Updated text for selector: $selector" -Data $resultData -UseHost
             exit 0
           }
         }
@@ -115,4 +183,5 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   throw "No element matched selector: $selector"
 }
 
-Write-Host "Updated text for selector: $selector"
+Write-SilmarilCommandResult -Command "set-text" -Text "Updated text for selector: $selector" -Data $resultData -UseHost
+

@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
 
-$usage = "set-html requires: ""selector"" ""html"" --yes, or ""selector"" --html-file ""path"" --yes"
+$usage = "type requires: ""selector"" ""text"" --yes, or ""selector"" --text-file ""path"" --yes"
 if ($RemainingArgs.Count -lt 3) {
   throw $usage
 }
@@ -21,7 +21,7 @@ if ([string]::IsNullOrWhiteSpace($selector)) {
 }
 
 if ($confirmation -ne "--yes") {
-  throw "set-html requires explicit confirmation flag --yes"
+  throw "type requires explicit confirmation flag --yes"
 }
 
 $payloadArgs = @()
@@ -30,12 +30,12 @@ if ($RemainingArgs.Count -gt 2) {
 }
 
 $maxPayloadBytes = 1048576
-$htmlValue = $null
+$textValue = $null
 $inputMode = "inline"
 $filePath = $null
 $payloadBytes = 0
 
-$fileFlags = @("--html-file", "--file")
+$fileFlags = @("--text-file", "--file")
 $hasFileFlag = $false
 foreach ($arg in $payloadArgs) {
   foreach ($fileFlag in $fileFlags) {
@@ -50,41 +50,41 @@ foreach ($arg in $payloadArgs) {
 if ($payloadArgs.Count -eq 1) {
   $arg0 = [string]$payloadArgs[0]
   if ($hasFileFlag) {
-    throw "set-html file mode requires a file path after --html-file/--file"
+    throw "type file mode requires a file path after --text-file/--file"
   }
 
-  $htmlValue = $arg0
-  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($htmlValue)
+  $textValue = $arg0
+  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($textValue)
 }
 elseif ($payloadArgs.Count -eq 2) {
   $flag = [string]$payloadArgs[0]
   if (
-    [string]::Equals($flag, "--html-file", [System.StringComparison]::OrdinalIgnoreCase) -or
+    [string]::Equals($flag, "--text-file", [System.StringComparison]::OrdinalIgnoreCase) -or
     [string]::Equals($flag, "--file", [System.StringComparison]::OrdinalIgnoreCase)
   ) {
-    $loaded = Read-SilmarilTextFile -Path ([string]$payloadArgs[1]) -Label "HTML" -MaxBytes $maxPayloadBytes
+    $loaded = Read-SilmarilTextFile -Path ([string]$payloadArgs[1]) -Label "Text" -MaxBytes $maxPayloadBytes
     $filePath = [string]$loaded.path
-    $htmlValue = [string]$loaded.content
+    $textValue = [string]$loaded.content
     $payloadBytes = [int64]$loaded.bytes
     $inputMode = "file"
   }
   else {
     if ($hasFileFlag) {
-      throw "set-html does not allow combining inline HTML with --html-file/--file"
+      throw "type does not allow combining inline text with --text-file/--file"
     }
     throw $usage
   }
 }
 else {
   if ($hasFileFlag) {
-    throw "set-html does not allow combining inline HTML with --html-file/--file"
+    throw "type does not allow combining inline text with --text-file/--file"
   }
   throw $usage
 }
 
 $selectorJs = $selector | ConvertTo-Json -Compress
-$htmlJs = $htmlValue | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; var html = $htmlJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; el.innerHTML = html; return { ok: true, outerHTML: el.outerHTML }; })()"
+$textJs = $textValue | ConvertTo-Json -Compress
+$expression = "(function(){ var sel = $selectorJs; var txt = $textJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; var tag = (el.tagName || '').toLowerCase(); var isEditable = !!el.isContentEditable || tag === 'input' || tag === 'textarea'; if (!isEditable) return { ok: false, reason: 'not_editable' }; if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); } if (typeof el.focus === 'function') { el.focus(); } if ('value' in el) { el.value = txt; if (typeof el.setSelectionRange === 'function') { try { var n = el.value.length; el.setSelectionRange(n, n); } catch (_) {} } } else { el.textContent = txt; } el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true }; })()"
 
 $target = Get-SilmarilPreferredPageTarget -Port 9222
 $evalResult = Invoke-SilmarilCdpCommand -Target $target -Method "Runtime.evaluate" -Params @{
@@ -94,18 +94,18 @@ $evalResult = Invoke-SilmarilCdpCommand -Target $target -Method "Runtime.evaluat
 }
 
 if (-not $evalResult) {
-  throw "No mutation result returned from CDP."
+  throw "No type result returned from CDP."
 }
 
 $resultData = [ordered]@{
-  selector   = $selector
-  inputMode  = $inputMode
-  bytes      = $payloadBytes
-  htmlLength = $htmlValue.Length
+  selector  = $selector
+  inputMode = $inputMode
+  bytes     = $payloadBytes
+  text      = $textValue
 }
 if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
   $resultData["filePath"] = $filePath
-  $resultData["htmlFile"] = $filePath
+  $resultData["textFile"] = $filePath
 }
 
 $evalProps = @(Get-SilmarilPropertyNames -InputObject $evalResult)
@@ -133,15 +133,18 @@ if (-not ($runtimeProps -contains "value")) {
       if ($itemProps -contains "value") {
         $value = $item.value
         if ($null -eq $value) {
-          throw "Mutation result value is null."
+          throw "Type result value is null."
         }
 
         $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
         if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+          if (($valueProps -contains "reason") -and $value.reason -eq "not_editable") {
+            throw "Matched element is not editable: $selector"
+          }
           throw "No element matched selector: $selector"
         }
 
-        Write-SilmarilCommandResult -Command "set-html" -Text "Updated innerHTML for selector: $selector" -Data $resultData -UseHost
+        Write-SilmarilCommandResult -Command "type" -Text "Typed text into selector: $selector" -Data $resultData -UseHost
         exit 0
       }
 
@@ -152,15 +155,18 @@ if (-not ($runtimeProps -contains "value")) {
           if ($nestedProps -contains "value") {
             $value = $nested.value
             if ($null -eq $value) {
-              throw "Mutation result value is null."
+              throw "Type result value is null."
             }
 
             $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
             if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+              if (($valueProps -contains "reason") -and $value.reason -eq "not_editable") {
+                throw "Matched element is not editable: $selector"
+              }
               throw "No element matched selector: $selector"
             }
 
-            Write-SilmarilCommandResult -Command "set-html" -Text "Updated innerHTML for selector: $selector" -Data $resultData -UseHost
+            Write-SilmarilCommandResult -Command "type" -Text "Typed text into selector: $selector" -Data $resultData -UseHost
             exit 0
           }
         }
@@ -176,13 +182,16 @@ if (-not ($runtimeProps -contains "value")) {
 
 $value = $runtimeResult.value
 if ($null -eq $value) {
-  throw "Mutation result value is null."
+  throw "Type result value is null."
 }
 
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+  if (($valueProps -contains "reason") -and $value.reason -eq "not_editable") {
+    throw "Matched element is not editable: $selector"
+  }
   throw "No element matched selector: $selector"
 }
 
-Write-SilmarilCommandResult -Command "set-html" -Text "Updated innerHTML for selector: $selector" -Data $resultData -UseHost
+Write-SilmarilCommandResult -Command "type" -Text "Typed text into selector: $selector" -Data $resultData -UseHost
 

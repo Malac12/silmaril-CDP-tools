@@ -71,7 +71,7 @@ if (-not ($runtimeProps -contains "value")) {
       if ($itemProps -contains "value") {
         $sourceValue = $item.value
         if ($null -ne $sourceValue) {
-          Write-Output ([string]$sourceValue)
+          Write-SilmarilCommandResult -Command "get-source" -Text ([string]$sourceValue) -Data @{ source = [string]$sourceValue }
           exit 0
         }
       }
@@ -83,7 +83,7 @@ if (-not ($runtimeProps -contains "value")) {
           if ($nestedProps -contains "value") {
             $sourceValue = $nested.value
             if ($null -ne $sourceValue) {
-              Write-Output ([string]$sourceValue)
+              Write-SilmarilCommandResult -Command "get-source" -Text ([string]$sourceValue) -Data @{ source = [string]$sourceValue }
               exit 0
             }
           }
@@ -100,4 +100,5 @@ if ($null -eq $source) {
   throw "Source content is null."
 }
 
-Write-Output ([string]$source)
+Write-SilmarilCommandResult -Command "get-source" -Text ([string]$source) -Data @{ source = [string]$source }
+

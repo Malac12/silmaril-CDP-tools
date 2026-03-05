@@ -15,9 +15,21 @@ if ($RemainingArgs.Count -ne 0) {
 $pages = Get-SilmarilPageTargets -Port 9222
 $preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
 
+$urls = @()
 if ($preferred.Count -gt 0) {
-  $preferred | ForEach-Object { Write-Output $_.url }
+  $urls = @($preferred | ForEach-Object { $_.url })
+}
+else {
+  $urls = @($pages | ForEach-Object { $_.url })
+}
+
+if (Test-SilmarilJsonOutput) {
+  Write-SilmarilJson -Value ([ordered]@{
+    ok      = $true
+    command = "list-urls"
+    urls    = $urls
+  }) -Depth 10
   exit 0
 }
 
-$pages | ForEach-Object { Write-Output $_.url }
+$urls | ForEach-Object { Write-Output $_ }

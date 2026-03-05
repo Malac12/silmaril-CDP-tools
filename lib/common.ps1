@@ -254,3 +254,102 @@ function Invoke-SilmarilCdpCommand {
     $socket.Dispose()
   }
 }
+
+function Test-SilmarilJsonOutput {
+  return ([string]$env:SILMARIL_OUTPUT_JSON -eq "1")
+}
+
+function Write-SilmarilJson {
+  param(
+    [object]$Value,
+    [int]$Depth = 20
+  )
+
+  Write-Output ($Value | ConvertTo-Json -Depth $Depth -Compress)
+}
+
+function Write-SilmarilCommandResult {
+  param(
+    [string]$Command,
+    [object]$Text = $null,
+    [hashtable]$Data = @{},
+    [switch]$UseHost,
+    [int]$Depth = 20
+  )
+
+  if (Test-SilmarilJsonOutput) {
+    $payload = [ordered]@{
+      ok      = $true
+      command = $Command
+    }
+
+    foreach ($key in @($Data.Keys)) {
+      $payload[$key] = $Data[$key]
+    }
+
+    Write-SilmarilJson -Value $payload -Depth $Depth
+    return
+  }
+
+  if ($null -eq $Text) {
+    return
+  }
+
+  if ($UseHost) {
+    Write-Host ([string]$Text)
+    return
+  }
+
+  Write-Output ([string]$Text)
+}
+
+function Read-SilmarilTextFile {
+  param(
+    [string]$Path,
+    [string]$Label = "Text",
+    [int]$MaxBytes = 1048576
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Path)) {
+    throw "$Label file path cannot be empty."
+  }
+
+  if ($MaxBytes -lt 1) {
+    throw "MaxBytes must be a positive integer."
+  }
+
+  $resolved = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
+  if (-not $resolved) {
+    throw "$Label file not found: $Path"
+  }
+
+  $filePath = $resolved.Path
+  $fileInfo = Get-Item -LiteralPath $filePath -ErrorAction SilentlyContinue
+  if (-not $fileInfo) {
+    throw "$Label file not found: $Path"
+  }
+
+  $byteLength = [int64]$fileInfo.Length
+  if ($byteLength -gt $MaxBytes) {
+    throw "$Label file exceeds max size of $MaxBytes bytes: $filePath ($byteLength bytes)"
+  }
+
+  $content = Get-Content -LiteralPath $filePath -Raw -Encoding UTF8
+  if ($null -eq $content) {
+    throw "$Label file is empty: $filePath"
+  }
+
+  if ($content.Length -gt 0 -and $content[0] -eq [char]0xFEFF) {
+    $content = $content.Substring(1)
+  }
+
+  if ([string]::IsNullOrWhiteSpace($content)) {
+    throw "$Label file is empty: $filePath"
+  }
+
+  return [ordered]@{
+    path    = $filePath
+    content = $content
+    bytes   = $byteLength
+  }
+}

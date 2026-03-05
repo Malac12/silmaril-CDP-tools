@@ -12,6 +12,7 @@ if ($RemainingArgs.Count -gt 1) {
   throw "get-dom takes zero arguments (full page) or one selector argument."
 }
 
+$selector = $null
 $expression = "document.documentElement ? document.documentElement.outerHTML : ''"
 if ($RemainingArgs.Count -eq 1) {
   $selector = $RemainingArgs[0]
@@ -59,7 +60,7 @@ if (-not ($runtimeProps -contains "value")) {
       if ($itemProps -contains "value") {
         $domValue = $item.value
         if ($null -ne $domValue) {
-          Write-Output ([string]$domValue)
+          Write-SilmarilCommandResult -Command "get-dom" -Text ([string]$domValue) -Data @{ selector = $selector; dom = [string]$domValue }
           exit 0
         }
       }
@@ -71,7 +72,7 @@ if (-not ($runtimeProps -contains "value")) {
           if ($nestedProps -contains "value") {
             $domValue = $nested.value
             if ($null -ne $domValue) {
-              Write-Output ([string]$domValue)
+              Write-SilmarilCommandResult -Command "get-dom" -Text ([string]$domValue) -Data @{ selector = $selector; dom = [string]$domValue }
               exit 0
             }
           }
@@ -94,4 +95,5 @@ if ($null -eq $domValue) {
   throw "DOM result was null."
 }
 
-Write-Output ([string]$domValue)
+Write-SilmarilCommandResult -Command "get-dom" -Text ([string]$domValue) -Data @{ selector = $selector; dom = [string]$domValue }
+

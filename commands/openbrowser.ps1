@@ -46,4 +46,5 @@ if (-not $cdpReady) {
   throw "Browser launch did not expose CDP at 127.0.0.1:9222. No usable automation session was created."
 }
 
-Write-Host "Browser opened with CDP on port 9222."
+Write-SilmarilCommandResult -Command "openbrowser" -Text "Browser opened with CDP on port 9222." -Data @{ port = 9222; userDataDir = $userDataDir; browserPath = $browserPath } -UseHost
+

@@ -1,0 +1,10 @@
+{
+  "rules": [
+    {
+      "match": "https://www\\.example\\.com/assets/app\\.js$",
+      "file": "C:/Users/hangx/overrides/app.js",
+      "contentType": "application/javascript"
+    }
+  ]
+}
+
