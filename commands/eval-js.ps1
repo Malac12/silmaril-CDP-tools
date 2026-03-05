@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string[]]$RemainingArgs
 )
 
@@ -26,6 +26,14 @@ if (
   }
 }
 
+$hadTimeoutFlag = $false
+foreach ($arg in $RemainingArgs) {
+  if ([string]::Equals([string]$arg, "--timeout-ms", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $hadTimeoutFlag = $true
+    break
+  }
+}
+
 $resultJsonStrict = $false
 $filteredArgs = @()
 foreach ($arg in $RemainingArgs) {
@@ -37,11 +45,18 @@ foreach ($arg in $RemainingArgs) {
 }
 $RemainingArgs = $filteredArgs
 
+$common = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTargetSelection -AllowTimeout -DefaultPort 9222 -DefaultTimeoutMs 20000
+$RemainingArgs = @($common.RemainingArgs)
+$port = [int]$common.Port
+$targetId = [string]$common.TargetId
+$urlMatch = [string]$common.UrlMatch
+$timeoutMs = [int]$common.TimeoutMs
+
 if ($RemainingArgs.Count -lt 2) {
   throw "eval-js requires expression and confirmation flag --yes, or --file <path> --yes"
 }
 
-$confirmation = $RemainingArgs[$RemainingArgs.Count - 1]
+$confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
 if ($confirmation -ne "--yes") {
   throw "eval-js requires explicit confirmation flag --yes"
 }
@@ -185,16 +200,20 @@ function Write-SilmarilEvalResult {
 
   if (Test-SilmarilJsonOutput) {
     $payload = [ordered]@{
-      ok         = $true
-      command    = "eval-js"
-      inputMode  = $inputMode
-      mode       = $inputMode
-      bytes      = $payloadBytes
+      ok               = $true
+      command          = "eval-js"
+      inputMode        = $inputMode
+      mode             = $inputMode
+      bytes            = $payloadBytes
       resultJsonStrict = $resultJsonStrict
-      kind       = $Kind
-      value      = $Value
-      attempt    = $attemptUsed
-      timeoutSec = $effectiveTimeoutSec
+      kind             = $Kind
+      value            = $Value
+      attempt          = $attemptUsed
+      timeoutSec       = $effectiveTimeoutSec
+      port             = $port
+      targetId         = $targetId
+      urlMatch         = $urlMatch
+      timeoutMs        = $timeoutMs
     }
 
     if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
@@ -259,8 +278,16 @@ function ConvertTo-SilmarilStrictJsonValue {
   throw "eval-js --result-json requires JSON object/array result."
 }
 
-$target = Get-SilmarilPreferredPageTarget -Port 9222
-$baseTimeoutSec = if ($inputMode -eq "file") { 45 } else { 20 }
+$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+
+$baseTimeoutSec = 0
+if ($hadTimeoutFlag) {
+  $baseTimeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 5000 -MinSeconds 5
+}
+else {
+  $baseTimeoutSec = if ($inputMode -eq "file") { 45 } else { 20 }
+}
+
 $maxAttempts = if ($inputMode -eq "file") { 2 } else { 1 }
 $evalResult = $null
 $lastError = $null

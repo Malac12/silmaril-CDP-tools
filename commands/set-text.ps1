@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string[]]$RemainingArgs
 )
 
@@ -8,13 +8,20 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
 
+$common = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTargetSelection -AllowTimeout
+$RemainingArgs = @($common.RemainingArgs)
+$port = [int]$common.Port
+$targetId = [string]$common.TargetId
+$urlMatch = [string]$common.UrlMatch
+$timeoutMs = [int]$common.TimeoutMs
+
 $usage = "set-text requires: ""selector"" ""text"" --yes, or ""selector"" --text-file ""path"" --yes"
 if ($RemainingArgs.Count -lt 3) {
   throw $usage
 }
 
-$selector = $RemainingArgs[0]
-$confirmation = $RemainingArgs[$RemainingArgs.Count - 1]
+$selector = [string]$RemainingArgs[0]
+$confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
 if ([string]::IsNullOrWhiteSpace($selector)) {
   throw "Selector cannot be empty."
 }
@@ -43,145 +50,74 @@ foreach ($arg in $payloadArgs) {
       break
     }
   }
-  if ($hasFileFlag) { break }
-}
-
-if ($payloadArgs.Count -eq 1) {
-  $arg0 = [string]$payloadArgs[0]
   if ($hasFileFlag) {
-    throw "set-text file mode requires a file path after --text-file/--file"
+    break
+  }
+}
+
+if ($hasFileFlag) {
+  if ($payloadArgs.Count -ne 2) {
+    throw "set-text does not allow combining inline text with --text-file. Use either set-text ""selector"" ""text"" --yes or set-text ""selector"" --text-file ""path"" --yes"
   }
 
-  $textValue = $arg0
-  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($textValue)
-}
-elseif ($payloadArgs.Count -eq 2) {
   $flag = [string]$payloadArgs[0]
-  if (
-    [string]::Equals($flag, "--text-file", [System.StringComparison]::OrdinalIgnoreCase) -or
-    [string]::Equals($flag, "--file", [System.StringComparison]::OrdinalIgnoreCase)
-  ) {
-    $loaded = Read-SilmarilTextFile -Path ([string]$payloadArgs[1]) -Label "Text" -MaxBytes $maxPayloadBytes
-    $filePath = [string]$loaded.path
-    $textValue = [string]$loaded.content
-    $payloadBytes = [int64]$loaded.bytes
-    $inputMode = "file"
+  if (-not ($fileFlags | Where-Object { [string]::Equals($flag, $_, [System.StringComparison]::OrdinalIgnoreCase) })) {
+    throw "set-text file mode requires --text-file ""path""."
   }
-  else {
-    if ($hasFileFlag) {
-      throw "set-text does not allow combining inline text with --text-file/--file"
-    }
-    throw $usage
+
+  $rawPath = [string]$payloadArgs[1]
+  if ([string]::IsNullOrWhiteSpace($rawPath)) {
+    throw "set-text --text-file requires a non-empty file path."
   }
+
+  $loaded = Read-SilmarilTextFile -Path $rawPath -Label "Text" -MaxBytes $maxPayloadBytes
+  $filePath = [string]$loaded.path
+  $inputMode = "file"
+  $textValue = [string]$loaded.content
+  $payloadBytes = [int64]$loaded.bytes
 }
 else {
-  if ($hasFileFlag) {
-    throw "set-text does not allow combining inline text with --text-file/--file"
+  $textValue = ($payloadArgs -join " ")
+  if ([string]::IsNullOrWhiteSpace($textValue)) {
+    throw "Text value cannot be empty."
   }
-  throw $usage
+
+  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($textValue)
 }
 
 $selectorJs = $selector | ConvertTo-Json -Compress
 $textJs = $textValue | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var txt = $textJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; el.textContent = txt; return { ok: true }; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port 9222
-$evalResult = Invoke-SilmarilCdpCommand -Target $target -Method "Runtime.evaluate" -Params @{
-  expression    = $expression
-  returnByValue = $true
-  awaitPromise  = $true
-}
-
-if (-not $evalResult) {
-  throw "No mutation result returned from CDP."
-}
-
-$resultData = [ordered]@{
-  selector  = $selector
-  inputMode = $inputMode
-  bytes     = $payloadBytes
-  text      = $textValue
-}
-if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
-  $resultData["filePath"] = $filePath
-  $resultData["textFile"] = $filePath
-}
-
-$evalProps = @(Get-SilmarilPropertyNames -InputObject $evalResult)
-$runtimeResult = $null
-if ($evalProps -contains "result") {
-  $runtimeResult = $evalResult.result
-}
-else {
-  $runtimeResult = $evalResult
-}
-
-if (-not $runtimeResult) {
-  throw "No runtime result payload from CDP."
-}
-
-$runtimeProps = @(Get-SilmarilPropertyNames -InputObject $runtimeResult)
-if (-not ($runtimeProps -contains "value")) {
-  if (($runtimeResult -is [System.Collections.IEnumerable]) -and -not ($runtimeResult -is [string])) {
-    foreach ($item in @($runtimeResult)) {
-      if (-not $item) {
-        continue
-      }
-
-      $itemProps = @(Get-SilmarilPropertyNames -InputObject $item)
-      if ($itemProps -contains "value") {
-        $value = $item.value
-        if ($null -eq $value) {
-          throw "Mutation result value is null."
-        }
-
-        $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
-        if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
-          throw "No element matched selector: $selector"
-        }
-
-        Write-SilmarilCommandResult -Command "set-text" -Text "Updated text for selector: $selector" -Data $resultData -UseHost
-        exit 0
-      }
-
-      if ($itemProps -contains "result") {
-        $nested = $item.result
-        if ($null -ne $nested) {
-          $nestedProps = @(Get-SilmarilPropertyNames -InputObject $nested)
-          if ($nestedProps -contains "value") {
-            $value = $nested.value
-            if ($null -eq $value) {
-              throw "Mutation result value is null."
-            }
-
-            $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
-            if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
-              throw "No element matched selector: $selector"
-            }
-
-            Write-SilmarilCommandResult -Command "set-text" -Text "Updated text for selector: $selector" -Data $resultData -UseHost
-            exit 0
-          }
-        }
-      }
-    }
-  }
-
-  if (($evalProps -contains "exceptionDetails") -and $null -ne $evalResult.exceptionDetails) {
-    throw "Runtime.evaluate returned exceptionDetails instead of value."
-  }
-  throw "Runtime.evaluate result does not contain 'value'."
-}
-
-$value = $runtimeResult.value
+$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "set-text"
 if ($null -eq $value) {
-  throw "Mutation result value is null."
+  throw "set-text result value is null."
 }
 
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
-  throw "No element matched selector: $selector"
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
+    throw "No element matched selector: $selector"
+  }
+
+  throw "set-text failed for selector: $selector"
 }
 
-Write-SilmarilCommandResult -Command "set-text" -Text "Updated text for selector: $selector" -Data $resultData -UseHost
+$data = [ordered]@{
+  selector    = $selector
+  inputMode   = $inputMode
+  bytes       = $payloadBytes
+  port        = $port
+  targetId    = $targetId
+  urlMatch    = $urlMatch
+}
+
+if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
+  $data["filePath"] = $filePath
+}
+
+Write-SilmarilCommandResult -Command "set-text" -Text "Text updated for selector: $selector" -Data $data -UseHost
 

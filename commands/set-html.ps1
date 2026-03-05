@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string[]]$RemainingArgs
 )
 
@@ -8,13 +8,20 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
 
+$common = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTargetSelection -AllowTimeout
+$RemainingArgs = @($common.RemainingArgs)
+$port = [int]$common.Port
+$targetId = [string]$common.TargetId
+$urlMatch = [string]$common.UrlMatch
+$timeoutMs = [int]$common.TimeoutMs
+
 $usage = "set-html requires: ""selector"" ""html"" --yes, or ""selector"" --html-file ""path"" --yes"
 if ($RemainingArgs.Count -lt 3) {
   throw $usage
 }
 
-$selector = $RemainingArgs[0]
-$confirmation = $RemainingArgs[$RemainingArgs.Count - 1]
+$selector = [string]$RemainingArgs[0]
+$confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
 
 if ([string]::IsNullOrWhiteSpace($selector)) {
   throw "Selector cannot be empty."
@@ -44,145 +51,74 @@ foreach ($arg in $payloadArgs) {
       break
     }
   }
-  if ($hasFileFlag) { break }
-}
-
-if ($payloadArgs.Count -eq 1) {
-  $arg0 = [string]$payloadArgs[0]
   if ($hasFileFlag) {
-    throw "set-html file mode requires a file path after --html-file/--file"
+    break
+  }
+}
+
+if ($hasFileFlag) {
+  if ($payloadArgs.Count -ne 2) {
+    throw "set-html does not allow combining inline html with --html-file. Use either set-html ""selector"" ""html"" --yes or set-html ""selector"" --html-file ""path"" --yes"
   }
 
-  $htmlValue = $arg0
-  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($htmlValue)
-}
-elseif ($payloadArgs.Count -eq 2) {
   $flag = [string]$payloadArgs[0]
-  if (
-    [string]::Equals($flag, "--html-file", [System.StringComparison]::OrdinalIgnoreCase) -or
-    [string]::Equals($flag, "--file", [System.StringComparison]::OrdinalIgnoreCase)
-  ) {
-    $loaded = Read-SilmarilTextFile -Path ([string]$payloadArgs[1]) -Label "HTML" -MaxBytes $maxPayloadBytes
-    $filePath = [string]$loaded.path
-    $htmlValue = [string]$loaded.content
-    $payloadBytes = [int64]$loaded.bytes
-    $inputMode = "file"
+  if (-not ($fileFlags | Where-Object { [string]::Equals($flag, $_, [System.StringComparison]::OrdinalIgnoreCase) })) {
+    throw "set-html file mode requires --html-file ""path""."
   }
-  else {
-    if ($hasFileFlag) {
-      throw "set-html does not allow combining inline HTML with --html-file/--file"
-    }
-    throw $usage
+
+  $rawPath = [string]$payloadArgs[1]
+  if ([string]::IsNullOrWhiteSpace($rawPath)) {
+    throw "set-html --html-file requires a non-empty file path."
   }
+
+  $loaded = Read-SilmarilTextFile -Path $rawPath -Label "HTML" -MaxBytes $maxPayloadBytes
+  $filePath = [string]$loaded.path
+  $inputMode = "file"
+  $htmlValue = [string]$loaded.content
+  $payloadBytes = [int64]$loaded.bytes
 }
 else {
-  if ($hasFileFlag) {
-    throw "set-html does not allow combining inline HTML with --html-file/--file"
+  $htmlValue = ($payloadArgs -join " ")
+  if ([string]::IsNullOrWhiteSpace($htmlValue)) {
+    throw "HTML value cannot be empty."
   }
-  throw $usage
+
+  $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($htmlValue)
 }
 
 $selectorJs = $selector | ConvertTo-Json -Compress
 $htmlJs = $htmlValue | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var html = $htmlJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; el.innerHTML = html; return { ok: true, outerHTML: el.outerHTML }; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port 9222
-$evalResult = Invoke-SilmarilCdpCommand -Target $target -Method "Runtime.evaluate" -Params @{
-  expression    = $expression
-  returnByValue = $true
-  awaitPromise  = $true
-}
-
-if (-not $evalResult) {
-  throw "No mutation result returned from CDP."
-}
-
-$resultData = [ordered]@{
-  selector   = $selector
-  inputMode  = $inputMode
-  bytes      = $payloadBytes
-  htmlLength = $htmlValue.Length
-}
-if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
-  $resultData["filePath"] = $filePath
-  $resultData["htmlFile"] = $filePath
-}
-
-$evalProps = @(Get-SilmarilPropertyNames -InputObject $evalResult)
-$runtimeResult = $null
-if ($evalProps -contains "result") {
-  $runtimeResult = $evalResult.result
-}
-else {
-  $runtimeResult = $evalResult
-}
-
-if (-not $runtimeResult) {
-  throw "No runtime result payload from CDP."
-}
-
-$runtimeProps = @(Get-SilmarilPropertyNames -InputObject $runtimeResult)
-if (-not ($runtimeProps -contains "value")) {
-  if (($runtimeResult -is [System.Collections.IEnumerable]) -and -not ($runtimeResult -is [string])) {
-    foreach ($item in @($runtimeResult)) {
-      if (-not $item) {
-        continue
-      }
-
-      $itemProps = @(Get-SilmarilPropertyNames -InputObject $item)
-      if ($itemProps -contains "value") {
-        $value = $item.value
-        if ($null -eq $value) {
-          throw "Mutation result value is null."
-        }
-
-        $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
-        if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
-          throw "No element matched selector: $selector"
-        }
-
-        Write-SilmarilCommandResult -Command "set-html" -Text "Updated innerHTML for selector: $selector" -Data $resultData -UseHost
-        exit 0
-      }
-
-      if ($itemProps -contains "result") {
-        $nested = $item.result
-        if ($null -ne $nested) {
-          $nestedProps = @(Get-SilmarilPropertyNames -InputObject $nested)
-          if ($nestedProps -contains "value") {
-            $value = $nested.value
-            if ($null -eq $value) {
-              throw "Mutation result value is null."
-            }
-
-            $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
-            if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
-              throw "No element matched selector: $selector"
-            }
-
-            Write-SilmarilCommandResult -Command "set-html" -Text "Updated innerHTML for selector: $selector" -Data $resultData -UseHost
-            exit 0
-          }
-        }
-      }
-    }
-  }
-
-  if (($evalProps -contains "exceptionDetails") -and $null -ne $evalResult.exceptionDetails) {
-    throw "Runtime.evaluate returned exceptionDetails instead of value."
-  }
-  throw "Runtime.evaluate result does not contain 'value'."
-}
-
-$value = $runtimeResult.value
+$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "set-html"
 if ($null -eq $value) {
-  throw "Mutation result value is null."
+  throw "set-html result value is null."
 }
 
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
-  throw "No element matched selector: $selector"
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
+    throw "No element matched selector: $selector"
+  }
+
+  throw "set-html failed for selector: $selector"
 }
 
-Write-SilmarilCommandResult -Command "set-html" -Text "Updated innerHTML for selector: $selector" -Data $resultData -UseHost
+$data = [ordered]@{
+  selector    = $selector
+  inputMode   = $inputMode
+  bytes       = $payloadBytes
+  port        = $port
+  targetId    = $targetId
+  urlMatch    = $urlMatch
+}
+
+if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
+  $data["filePath"] = $filePath
+}
+
+Write-SilmarilCommandResult -Command "set-html" -Text "HTML updated for selector: $selector" -Data $data -UseHost
 

@@ -1,0 +1,58 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_integration:
+        description: 'Run browser integration smoke tests'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  lint-and-unit:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PowerShell Modules
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Lint
+        shell: pwsh
+        run: |
+          & "${{ github.workspace }}\tests\Run-Lint.ps1"
+
+      - name: Unit Tests
+        shell: pwsh
+        run: |
+          & "${{ github.workspace }}\tests\Run-Tests.ps1"
+
+  integration-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_integration == true
+    runs-on: windows-latest
+    needs: lint-and-unit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Integration Smoke
+        shell: pwsh
+        run: |
+          & "${{ github.workspace }}\tests\Run-Tests.ps1" -Integration

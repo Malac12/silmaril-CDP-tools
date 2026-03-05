@@ -347,3 +347,66 @@ Notes:
 - Rule update takes effect on next request; no rule file manual edit needed.
 
 
+
+## 15. Common Target and Timing Flags
+
+Many commands now support the same targeting/timing flags:
+
+- `--port <n>`: CDP port (default `9222`)
+- `--target-id <id>`: choose an exact CDP page target id
+- `--url-match <regex>`: choose a page target by URL regex
+- `--timeout-ms <n>`: command timeout in milliseconds
+- `--poll-ms <n>`: polling interval for wait/open commands
+
+Targeting rule:
+
+- Use either `--target-id` or `--url-match` (not both).
+
+Examples:
+
+```powershell
+silmaril.cmd get-text "#title" --port 9223 --url-match "example\.com" --timeout-ms 8000 --json
+silmaril.cmd wait-for "#result" --target-id "ABCD1234" --timeout-ms 15000 --poll-ms 150 --json
+```
+
+## 16. Declarative Runbook Command
+
+You can execute a flow file with built-in retries and artifact capture:
+
+```powershell
+silmaril.cmd run "D:\silmairl cdp\flow.json" --json
+```
+
+Minimal flow example:
+
+```json
+{
+  "name": "demo-flow",
+  "settings": {
+    "port": 9222,
+    "timeoutMs": 10000,
+    "pollMs": 200,
+    "retries": 1
+  },
+  "steps": [
+    { "action": "openUrl", "url": "https://example.com" },
+    { "action": "wait-for", "selector": "h1" },
+    { "action": "query", "selector": "a[href]", "fields": "text,href", "limit": 5 }
+  ]
+}
+```
+
+Supported `run` actions:
+
+- `openbrowser`
+- `openUrl`
+- `wait-for`
+- `click`
+- `query`
+
+Artifacts include:
+
+- `steps/*.json` per-step execution payloads
+- `summary.json`
+- `run.log`
+- `final-dom.html` snapshot (when available)

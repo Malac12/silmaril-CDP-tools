@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string[]]$RemainingArgs
 )
 
@@ -12,6 +12,12 @@ if (-not $RemainingArgs) {
   $RemainingArgs = @()
 }
 
+$common = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTimeout -AllowPoll -DefaultPort 9222 -DefaultTimeoutMs 10000 -DefaultPollMs 200
+$RemainingArgs = @($common.RemainingArgs)
+$cdpPort = [int]$common.Port
+$timeoutMs = [int]$common.TimeoutMs
+$pollMs = [int]$common.PollMs
+
 function Get-SilmarilListenerPid {
   param(
     [string]$ListenHost,
@@ -23,12 +29,12 @@ function Get-SilmarilListenerPid {
       return $null
     }
 
-    $matches = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
-    if (-not $matches) {
+    $listenerMatches = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+    if (-not $listenerMatches) {
       return $null
     }
 
-    foreach ($conn in @($matches)) {
+    foreach ($conn in @($listenerMatches)) {
       if ($null -eq $conn) {
         continue
       }
@@ -57,16 +63,17 @@ function Wait-SilmarilListener {
   param(
     [string]$ListenHost,
     [int]$Port,
-    [int]$TimeoutMs = 8000
+    [int]$TimeoutMs = 8000,
+    [int]$PollMs = 200
   )
 
   $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
   while ([DateTime]::UtcNow -lt $deadline) {
-    $pid = Get-SilmarilListenerPid -ListenHost $ListenHost -Port $Port
-    if ($null -ne $pid) {
-      return $pid
+    $listenerPid = Get-SilmarilListenerPid -ListenHost $ListenHost -Port $Port
+    if ($null -ne $listenerPid) {
+      return $listenerPid
     }
-    Start-Sleep -Milliseconds 200
+    Start-Sleep -Milliseconds $PollMs
   }
 
   return $null
@@ -185,9 +192,9 @@ else {
   ) | Out-Null
 
   $startedProxy = $true
-  $listenerPid = Wait-SilmarilListener -ListenHost $listenHost -Port $listenPort -TimeoutMs 10000
+  $listenerPid = Wait-SilmarilListener -ListenHost $listenHost -Port $listenPort -TimeoutMs $timeoutMs -PollMs $pollMs
   if ($null -eq $listenerPid) {
-    throw "Proxy did not become ready on $listenHost`:$listenPort."
+    throw "Proxy did not become ready on $listenHost`:$listenPort within $timeoutMs ms."
   }
 }
 
@@ -199,6 +206,8 @@ if ([string]::IsNullOrWhiteSpace($browserPath)) {
 New-Item -Path $profileDir -ItemType Directory -Force | Out-Null
 
 $launchArgs = @(
+  "--remote-debugging-port=$cdpPort"
+  "--remote-allow-origins=*"
   "--no-first-run"
   "--no-default-browser-check"
   "--user-data-dir=$profileDir"
@@ -209,6 +218,20 @@ $launchArgs = @(
 
 Start-Process -FilePath $browserPath -ArgumentList $launchArgs | Out-Null
 
+$cdpReady = $false
+$cdpDeadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)
+while ([DateTime]::UtcNow -lt $cdpDeadline) {
+  if (Test-SilmarilCdpReady -Port $cdpPort) {
+    $cdpReady = $true
+    break
+  }
+  Start-Sleep -Milliseconds $pollMs
+}
+
+if (-not $cdpReady) {
+  throw "Browser was launched but CDP was not ready on port $cdpPort within $timeoutMs ms."
+}
+
 Write-SilmarilCommandResult -Command "openurl-proxy" -Text "Opened URL through proxy: $url" -Data @{
   url          = $url
   listenHost   = $listenHost
@@ -218,4 +241,10 @@ Write-SilmarilCommandResult -Command "openurl-proxy" -Text "Opened URL through p
   rulesFile    = $rulesFile
   profileDir   = $profileDir
   browserPath  = $browserPath
+  port         = $cdpPort
+  timeoutMs    = $timeoutMs
+  pollMs       = $pollMs
 } -UseHost
+
+
+

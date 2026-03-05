@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string[]]$RemainingArgs
 )
 
@@ -8,11 +8,18 @@ $ErrorActionPreference = "Stop"
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
 
+$common = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTargetSelection -AllowTimeout
+$RemainingArgs = @($common.RemainingArgs)
+$port = [int]$common.Port
+$targetId = [string]$common.TargetId
+$urlMatch = [string]$common.UrlMatch
+$timeoutMs = [int]$common.TimeoutMs
+
 if ($RemainingArgs.Count -ne 1) {
-  throw "get-text requires exactly one selector argument."
+  throw "get-text requires exactly one selector argument. Supported flags: --port, --target-id, --url-match, --timeout-ms"
 }
 
-$selector = $RemainingArgs[0]
+$selector = [string]$RemainingArgs[0]
 if ([string]::IsNullOrWhiteSpace($selector)) {
   throw "Selector cannot be empty."
 }
@@ -20,73 +27,19 @@ if ([string]::IsNullOrWhiteSpace($selector)) {
 $selectorJs = $selector | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return null; var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent; return txt == null ? '' : txt; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port 9222
-$evalResult = Invoke-SilmarilCdpCommand -Target $target -Method "Runtime.evaluate" -Params @{
-  expression    = $expression
-  returnByValue = $true
-  awaitPromise  = $true
-}
+$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-text"
 
-if (-not $evalResult) {
-  throw "No text result returned from CDP."
-}
-
-$evalProps = @(Get-SilmarilPropertyNames -InputObject $evalResult)
-$runtimeResult = $null
-if ($evalProps -contains "result") {
-  $runtimeResult = $evalResult.result
-}
-else {
-  $runtimeResult = $evalResult
-}
-
-if (-not $runtimeResult) {
-  throw "No runtime result payload from CDP."
-}
-
-$runtimeProps = @(Get-SilmarilPropertyNames -InputObject $runtimeResult)
-if (-not ($runtimeProps -contains "value")) {
-  if (($runtimeResult -is [System.Collections.IEnumerable]) -and -not ($runtimeResult -is [string])) {
-    foreach ($item in @($runtimeResult)) {
-      if (-not $item) {
-        continue
-      }
-
-      $itemProps = @(Get-SilmarilPropertyNames -InputObject $item)
-      if ($itemProps -contains "value") {
-        $textValue = $item.value
-        if ($null -ne $textValue) {
-          Write-SilmarilCommandResult -Command "get-text" -Text ([string]$textValue) -Data @{ selector = $selector; text = [string]$textValue }
-          exit 0
-        }
-      }
-
-      if ($itemProps -contains "result") {
-        $nested = $item.result
-        if ($null -ne $nested) {
-          $nestedProps = @(Get-SilmarilPropertyNames -InputObject $nested)
-          if ($nestedProps -contains "value") {
-            $textValue = $nested.value
-            if ($null -ne $textValue) {
-              Write-SilmarilCommandResult -Command "get-text" -Text ([string]$textValue) -Data @{ selector = $selector; text = [string]$textValue }
-              exit 0
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (($evalProps -contains "exceptionDetails") -and $null -ne $evalResult.exceptionDetails) {
-    throw "Runtime.evaluate returned exceptionDetails instead of value."
-  }
-  throw "Runtime.evaluate result does not contain 'value'."
-}
-
-$text = $runtimeResult.value
-if ($null -eq $text) {
+if ($null -eq $value) {
   throw "No element matched selector: $selector"
 }
 
-Write-SilmarilCommandResult -Command "get-text" -Text ([string]$text) -Data @{ selector = $selector; text = [string]$text }
-
+Write-SilmarilCommandResult -Command "get-text" -Text ([string]$value) -Data @{
+  selector = $selector
+  text     = [string]$value
+  port     = $port
+  targetId = $targetId
+  urlMatch = $urlMatch
+}
