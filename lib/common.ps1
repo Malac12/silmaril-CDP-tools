@@ -336,7 +336,27 @@ function Test-SilmarilDefaultTabUrl {
     $normalized -eq "about:blank" -or
     $normalized -eq "chrome://newtab/" -or
     $normalized -eq "edge://newtab/" -or
-    $normalized.StartsWith("chrome-search://")
+    $normalized.StartsWith("chrome-search://") -or
+    $normalized.StartsWith("chrome://omnibox-popup.top-chrome/") -or
+    $normalized.StartsWith("edge://omnibox-popup.top-chrome/") -or
+    $normalized.StartsWith("chrome-untrusted://")
+  )
+}
+
+function Test-SilmarilUserPageUrl {
+  param(
+    [string]$Url
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Url)) {
+    return $false
+  }
+
+  $normalized = $Url.ToLowerInvariant()
+  return (
+    $normalized.StartsWith("http://") -or
+    $normalized.StartsWith("https://") -or
+    $normalized.StartsWith("file:///")
   )
 }
 
@@ -394,12 +414,22 @@ function Get-SilmarilPreferredPageTarget {
       throw "No page target URL matched regex: $UrlMatch"
     }
 
+    $preferredUserMatched = @($urlMatches | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
+    if ($preferredUserMatched.Count -gt 0) {
+      return $preferredUserMatched[0]
+    }
+
     $preferredMatched = @($urlMatches | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
     if ($preferredMatched.Count -gt 0) {
       return $preferredMatched[0]
     }
 
     return $urlMatches[0]
+  }
+
+  $preferredUserPages = @($pages | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
+  if ($preferredUserPages.Count -gt 0) {
+    return $preferredUserPages[0]
   }
 
   $preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })

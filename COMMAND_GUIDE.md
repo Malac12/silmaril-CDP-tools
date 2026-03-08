@@ -276,17 +276,32 @@ Quick start:
 
 1. Install `mitmproxy`.
 2. Copy `tools/mitm/rules.example.json` to `tools/mitm/rules.json` and edit mappings.
-3. Run:
+3. Generate and trust the mitmproxy CA certificate so HTTPS interception works.
+4. Run:
 
 ```powershell
 $env:SILMARIL_MITM_RULES = "D:\silmairl cdp\tools\mitm\rules.json"
 mitmdump -s "D:\silmairl cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080
 ```
 
-4. Launch Chrome with:
+If upstream certificate verification on your machine causes `502 Bad Gateway`, retry with:
+
+```powershell
+$env:SILMARIL_MITM_RULES = "D:\silmairl cdp\tools\mitm\rules.json"
+mitmdump -s "D:\silmairl cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080 --set ssl_insecure=true
+```
+
+5. Launch Chrome with:
 
 ```powershell
 start chrome --proxy-server="http://127.0.0.1:8080"
+```
+
+Windows certificate trust example:
+
+```powershell
+mitmdump --quit
+Import-Certificate -FilePath "$env:USERPROFILE\.mitmproxy\mitmproxy-ca-cert.cer" -CertStoreLocation 'Cert:\CurrentUser\Root'
 ```
 
 PowerShell note:
@@ -319,6 +334,7 @@ Useful flags:
 - `--attach` to run proxy in foreground.
 - `--dry-run` to validate args and generated config without starting proxy.
 - `--mitmdump "C:\path\to\mitmdump.exe"` to force a specific binary.
+- `--listen-port 8080` to choose a different proxy port when needed.
 - `--json` for structured startup output.
 
 Autostart + open URL through proxy:

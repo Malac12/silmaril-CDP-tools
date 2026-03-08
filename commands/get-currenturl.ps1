@@ -18,6 +18,12 @@ if ($RemainingArgs.Count -ne 0) {
 
 $pages = Get-SilmarilPageTargets -Port $port
 
+$preferredUserPages = @($pages | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
+if ($preferredUserPages.Count -gt 0) {
+  Write-SilmarilCommandResult -Command "get-currenturl" -Text $preferredUserPages[0].url -Data @{ url = $preferredUserPages[0].url; port = $port }
+  exit 0
+}
+
 # /json/list is typically ordered by most recently active target first.
 $preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
 if ($preferred.Count -gt 0) {

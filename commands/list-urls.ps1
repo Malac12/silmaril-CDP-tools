@@ -17,10 +17,14 @@ if ($RemainingArgs.Count -ne 0) {
 }
 
 $pages = Get-SilmarilPageTargets -Port $port
+$preferredUserPages = @($pages | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
 $preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
 
 $urls = @()
-if ($preferred.Count -gt 0) {
+if ($preferredUserPages.Count -gt 0) {
+  $urls = @($preferredUserPages | ForEach-Object { $_.url })
+}
+elseif ($preferred.Count -gt 0) {
   $urls = @($preferred | ForEach-Object { $_.url })
 }
 else {
