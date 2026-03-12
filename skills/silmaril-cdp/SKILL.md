@@ -13,6 +13,26 @@ Use this skill to operate the local Silmaril toolkit from PowerShell.
 - If that path is missing, look for `silmaril.cmd` on `PATH` or in a nearby checkout.
 - Invoke from PowerShell with `& 'D:\silmairl cdp\silmaril.cmd' ...`.
 
+## Install the toolkit if missing
+
+Use this setup on Windows when the toolkit is not already present:
+
+1. Clone or copy the repository:
+
+   `git clone https://github.com/Malac12/CDP-tools.git "D:\silmairl cdp"`
+
+2. Ensure Chrome, Chromium, or Edge is installed.
+
+   The toolkit checks standard Windows install paths and falls back to `chrome.exe` on `PATH`.
+
+3. Run the toolkit from PowerShell:
+
+   `& 'D:\silmairl cdp\silmaril.cmd' openbrowser --json`
+   `& 'D:\silmairl cdp\silmaril.cmd' openUrl 'https://example.com' --json`
+   `& 'D:\silmairl cdp\silmaril.cmd' get-text 'body' --json`
+
+This is sufficient for the core CDP workflow. No machine-wide PowerShell execution policy change is required because `silmaril.cmd` invokes PowerShell with `ExecutionPolicy Bypass`.
+
 ## Default workflow
 
 1. Start or attach a CDP browser with `openbrowser`.
