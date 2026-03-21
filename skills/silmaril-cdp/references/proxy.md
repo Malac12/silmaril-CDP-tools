@@ -13,6 +13,8 @@ Use these commands only when the task needs local response overrides or proxy-ba
 - Prefer narrow URL regexes for override matching.
 - Expect HTTPS interception to require a trusted mitmproxy certificate.
 - Keep overrides local and temporary unless the user wants them persisted.
+- Pass `--allow-mitm` for `openurl-proxy`, `proxy-override`, and `proxy-switch` unless `SILMARIL_ALLOW_MITM=1` is already set for a trusted local session.
+- Keep `--listen-host` on loopback unless the user explicitly requests `--allow-nonlocal-bind`.
 - Re-read the local docs before certificate or listener troubleshooting.
 
 ## Local documentation

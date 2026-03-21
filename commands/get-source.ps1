@@ -37,7 +37,8 @@ $expression = @"
 })()
 "@
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 5000 -MinSeconds 15
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-source"
@@ -45,9 +46,9 @@ if ($null -eq $value) {
   throw "No source HTML returned."
 }
 
-Write-SilmarilCommandResult -Command "get-source" -Text ([string]$value) -Data @{
+Write-SilmarilCommandResult -Command "get-source" -Text ([string]$value) -Data (Add-SilmarilTargetMetadata -Data @{
   html     = [string]$value
   port     = $port
   targetId = $targetId
   urlMatch = $urlMatch
-}
+} -TargetContext $targetContext)

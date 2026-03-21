@@ -20,12 +20,13 @@ if ($RemainingArgs.Count -lt 3) {
   throw $usage
 }
 
-$selector = [string]$RemainingArgs[0]
+$selectorInput = [string]$RemainingArgs[0]
 $confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
 
-if ([string]::IsNullOrWhiteSpace($selector)) {
+if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
+$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 if ($confirmation -ne "--yes") {
   throw "set-html requires explicit confirmation flag --yes"
@@ -90,7 +91,8 @@ $selectorJs = $selector | ConvertTo-Json -Compress
 $htmlJs = $htmlValue | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var html = $htmlJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; el.innerHTML = html; return { ok: true, outerHTML: el.outerHTML }; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "set-html"
@@ -101,14 +103,15 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selector"
+    throw "No element matched selector: $selectorInput"
   }
 
-  throw "set-html failed for selector: $selector"
+  throw "set-html failed for selector: $selectorInput"
 }
 
 $data = [ordered]@{
-  selector    = $selector
+  selector    = $selectorInput
+  normalizedSelector = $selector
   inputMode   = $inputMode
   bytes       = $payloadBytes
   port        = $port
@@ -120,5 +123,5 @@ if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
   $data["filePath"] = $filePath
 }
 
-Write-SilmarilCommandResult -Command "set-html" -Text "HTML updated for selector: $selector" -Data $data -UseHost
+Write-SilmarilCommandResult -Command "set-html" -Text "HTML updated for selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data $data -TargetContext $targetContext) -UseHost
 

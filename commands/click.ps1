@@ -19,12 +19,13 @@ if ($RemainingArgs.Count -ne 2) {
   throw "click requires exactly two arguments: ""selector"" --yes. Supported flags: --port, --target-id, --url-match, --timeout-ms"
 }
 
-$selector = [string]$RemainingArgs[0]
+$selectorInput = [string]$RemainingArgs[0]
 $confirmation = [string]$RemainingArgs[1]
 
-if ([string]::IsNullOrWhiteSpace($selector)) {
+if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
+$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 if ($confirmation -ne "--yes") {
   throw "click requires explicit confirmation flag --yes"
@@ -33,7 +34,8 @@ if ($confirmation -ne "--yes") {
 $selectorJs = $selector | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); } if (typeof el.focus === 'function') { el.focus(); } el.click(); return { ok: true }; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "click"
@@ -44,16 +46,17 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selector"
+    throw "No element matched selector: $selectorInput"
   }
 
-  throw "Click failed for selector: $selector"
+  throw "Click failed for selector: $selectorInput"
 }
 
-Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selector" -Data @{
-  selector = $selector
+Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data @{
+  selector = $selectorInput
+  normalizedSelector = $selector
   port     = $port
   targetId = $targetId
   urlMatch = $urlMatch
-}
+} -TargetContext $targetContext)
 

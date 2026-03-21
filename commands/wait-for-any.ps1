@@ -43,9 +43,11 @@ if ($selectors.Count -lt 1) {
   throw "wait-for-any requires at least one selector argument."
 }
 
+$normalizedSelectors = @($selectors | ForEach-Object { Normalize-SilmarilSelector -Selector ([string]$_) })
 $joinedSelectors = $selectors -join " | "
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
-$value = Invoke-SilmarilSelectorWait -Target $target -Selectors $selectors -Mode "any-visible" -TimeoutMs $timeoutMs -PollMs $pollMs -IncludeCounts:$includeCounts -CommandName "wait-for-any"
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
+$value = Invoke-SilmarilSelectorWait -Target $target -Selectors $normalizedSelectors -Mode "any-visible" -TimeoutMs $timeoutMs -PollMs $pollMs -IncludeCounts:$includeCounts -CommandName "wait-for-any"
 if ($null -eq $value) {
   throw "wait-for-any result value is null."
 }
@@ -83,6 +85,7 @@ if (($valueProps -contains "elapsedMs") -and $null -ne $value.elapsedMs) {
 
 $resultData = [ordered]@{
   selectors       = $selectors
+  normalizedSelectors = $normalizedSelectors
   matchedSelector = $matchedSelector
   elapsedMs       = $elapsed
   port            = $port
@@ -96,4 +99,4 @@ if ($includeCounts -and ($valueProps -contains "counts") -and $null -ne $value.c
   $resultData["counts"] = $value.counts
 }
 
-Write-SilmarilCommandResult -Command "wait-for-any" -Text "Selector found (any): $matchedSelector ($elapsed ms)" -Data $resultData -UseHost
+Write-SilmarilCommandResult -Command "wait-for-any" -Text "Selector found (any): $matchedSelector ($elapsed ms)" -Data (Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext) -UseHost

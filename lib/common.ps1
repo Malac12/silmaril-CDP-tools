@@ -20,6 +20,84 @@ function Get-SilmarilPropertyNames {
   return $names
 }
 
+function Test-SilmarilTruthyValue {
+  param(
+    [object]$Value
+  )
+
+  if ($null -eq $Value) {
+    return $false
+  }
+
+  $normalized = ([string]$Value).Trim().ToLowerInvariant()
+  return (
+    $normalized -eq "1" -or
+    $normalized -eq "true" -or
+    $normalized -eq "yes" -or
+    $normalized -eq "on"
+  )
+}
+
+function Test-SilmarilLoopbackHost {
+  param(
+    [string]$ListenHost
+  )
+
+  if ([string]::IsNullOrWhiteSpace($ListenHost)) {
+    return $false
+  }
+
+  $normalized = $ListenHost.Trim().ToLowerInvariant()
+  return (
+    $normalized -eq "127.0.0.1" -or
+    $normalized -eq "localhost" -or
+    $normalized -eq "::1"
+  )
+}
+
+function Resolve-SilmarilHighRiskAcknowledgement {
+  param(
+    [string]$CommandName,
+    [bool]$FlagPresent,
+    [string]$RequiredFlag,
+    [string]$EnvVar,
+    [string]$RiskDescription
+  )
+
+  if ($FlagPresent) {
+    return "flag:$RequiredFlag"
+  }
+
+  $envValue = $null
+  if (-not [string]::IsNullOrWhiteSpace($EnvVar) -and (Test-Path ("Env:" + $EnvVar))) {
+    $envValue = (Get-Item ("Env:" + $EnvVar)).Value
+  }
+
+  if (Test-SilmarilTruthyValue -Value $envValue) {
+    return "env:$EnvVar"
+  }
+
+  throw "$CommandName requires explicit safeguard flag $RequiredFlag because it enables $RiskDescription. For a trusted local session, set $EnvVar=1 instead."
+}
+
+function Assert-SilmarilLoopbackListenHost {
+  param(
+    [string]$CommandName,
+    [string]$ListenHost,
+    [bool]$AllowNonLocalBind = $false
+  )
+
+  if (Test-SilmarilLoopbackHost -ListenHost $ListenHost) {
+    return
+  }
+
+  if ($AllowNonLocalBind) {
+    return
+  }
+
+  throw "$CommandName requires a loopback listen host unless --allow-nonlocal-bind is provided."
+}
+
 function Parse-SilmarilCommonArgs {
   param(
     [Alias("Args")][string[]]$InputArgs,
@@ -191,6 +269,44 @@ function Get-SilmarilErrorContract {
     $errorMessage = "Unknown error."
   }
 
+  $structuredPrefix = "SILMARIL_STRUCTURED_ERROR::"
+  if ($errorMessage.StartsWith($structuredPrefix, [System.StringComparison]::Ordinal)) {
+    $rawStructured = $errorMessage.Substring($structuredPrefix.Length)
+    try {
+      $structured = $rawStructured | ConvertFrom-Json
+      $payload = [ordered]@{
+        ok      = $false
+        command = $Command
+        code    = [string]$structured.code
+        message = [string]$structured.message
+        hint    = [string]$structured.hint
+      }
+
+      foreach ($name in @(Get-SilmarilPropertyNames -InputObject $structured)) {
+        if (@("code", "message", "hint") -contains $name) {
+          continue
+        }
+
+        $payload[$name] = $structured.$name
+      }
+
+      if ([string]::IsNullOrWhiteSpace([string]$payload.code)) {
+        $payload.code = "COMMAND_FAILED"
+      }
+      if ([string]::IsNullOrWhiteSpace([string]$payload.message)) {
+        $payload.message = "Unknown error."
+      }
+      if ([string]::IsNullOrWhiteSpace([string]$payload.hint)) {
+        $payload.hint = "Review command output and retry."
+      }
+
+      return $payload
+    }
+    catch {
+      $errorMessage = "Structured error payload could not be parsed."
+    }
+  }
+
   $code = "COMMAND_FAILED"
   $hint = "Review command output and retry."
 
@@ -236,6 +352,22 @@ function Get-SilmarilErrorContract {
     message = $errorMessage
     hint    = $hint
   }
+}
+
+function New-SilmarilStructuredErrorMessage {
+  param(
+    [hashtable]$Payload
+  )
+
+  if ($null -eq $Payload) {
+    $Payload = [ordered]@{
+      code    = "COMMAND_FAILED"
+      message = "Unknown error."
+      hint    = "Review command output and retry."
+    }
+  }
+
+  return ("SILMARIL_STRUCTURED_ERROR::" + ($Payload | ConvertTo-Json -Compress -Depth 20))
 }
 
 function Get-SilmarilBrowserPath {
@@ -360,6 +492,346 @@ function Test-SilmarilUserPageUrl {
   )
 }
 
+function Get-SilmarilStateRoot {
+  $override = [string]$env:SILMARIL_STATE_DIR
+  if (-not [string]::IsNullOrWhiteSpace($override)) {
+    return $override
+  }
+
+  $localAppData = [string]$env:LOCALAPPDATA
+  if (-not [string]::IsNullOrWhiteSpace($localAppData)) {
+    return (Join-Path -Path $localAppData -ChildPath "Silmaril\state")
+  }
+
+  return (Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "Silmaril\state")
+}
+
+function Get-SilmarilTargetStatePath {
+  param(
+    [int]$Port = 9222,
+    [ValidateSet("ephemeral", "pinned")]
+    [string]$Kind = "ephemeral"
+  )
+
+  return (Join-Path -Path (Get-SilmarilStateRoot) -ChildPath ("target-state-" + [string]$Port + "-" + $Kind + ".json"))
+}
+
+function Get-SilmarilLegacyTargetStatePath {
+  param(
+    [int]$Port = 9222
+  )
+
+  return (Join-Path -Path (Get-SilmarilStateRoot) -ChildPath ("target-state-" + [string]$Port + ".json"))
+}
+
+function Get-SilmarilComparableUrl {
+  param(
+    [string]$Url
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Url)) {
+    return ""
+  }
+
+  try {
+    $uri = [System.Uri]::new($Url)
+    $builder = [System.UriBuilder]::new($uri)
+    $builder.Fragment = ""
+    $normalized = $builder.Uri.AbsoluteUri
+    if ($normalized.EndsWith("/")) {
+      return $normalized.TrimEnd("/")
+    }
+    return $normalized
+  }
+  catch {
+    return ($Url.Trim()).TrimEnd("#")
+  }
+}
+
+function Get-SilmarilTargetState {
+  param(
+    [int]$Port = 9222,
+    [ValidateSet("ephemeral", "pinned")]
+    [string]$Kind = "ephemeral"
+  )
+
+  $path = Get-SilmarilTargetStatePath -Port $Port -Kind $Kind
+  $pathsToTry = @($path)
+  if ($Kind -eq "ephemeral") {
+    $legacyPath = Get-SilmarilLegacyTargetStatePath -Port $Port
+    if ($legacyPath -ne $path) {
+      $pathsToTry += $legacyPath
+    }
+  }
+
+  $resolvedPath = $null
+  foreach ($candidatePath in $pathsToTry) {
+    if (Test-Path -LiteralPath $candidatePath) {
+      $resolvedPath = $candidatePath
+      break
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($resolvedPath)) {
+    return $null
+  }
+
+  try {
+    $raw = Get-Content -LiteralPath $resolvedPath -Raw -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+      return $null
+    }
+
+    $parsed = $raw | ConvertFrom-Json
+    if ($null -ne $parsed -and -not (@(Get-SilmarilPropertyNames -InputObject $parsed) -contains "stateKind")) {
+      $parsed | Add-Member -NotePropertyName stateKind -NotePropertyValue $Kind -Force
+    }
+
+    return $parsed
+  }
+  catch {
+    return $null
+  }
+}
+
+function Save-SilmarilTargetState {
+  param(
+    [int]$Port = 9222,
+    [psobject]$Target,
+    [string]$SelectionMode = "",
+    [ValidateSet("ephemeral", "pinned")]
+    [string]$Kind = "ephemeral"
+  )
+
+  if (-not $Target) {
+    return
+  }
+
+  $path = Get-SilmarilTargetStatePath -Port $Port -Kind $Kind
+  $parent = Split-Path -Parent $path
+  try {
+    if (-not (Test-Path -LiteralPath $parent)) {
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+
+    $payload = [ordered]@{
+      id             = [string]$Target.id
+      url            = [string]$Target.url
+      title          = [string]$Target.title
+      type           = [string]$Target.type
+      stateKind      = [string]$Kind
+      selectionMode  = [string]$SelectionMode
+      updatedAtUtc   = [DateTime]::UtcNow.ToString("o")
+      comparableUrl  = Get-SilmarilComparableUrl -Url ([string]$Target.url)
+    }
+
+    Set-Content -LiteralPath $path -Encoding UTF8 -Value ($payload | ConvertTo-Json -Compress -Depth 10)
+  }
+  catch {
+    # State tracking is best-effort and should never fail the command path.
+  }
+}
+
+function Clear-SilmarilTargetState {
+  param(
+    [int]$Port = 9222,
+    [ValidateSet("ephemeral", "pinned", "all")]
+    [string]$Kind = "all"
+  )
+
+  $removed = [ordered]@{
+    ephemeral = $false
+    pinned    = $false
+    legacy    = $false
+  }
+
+  $paths = @()
+  switch ($Kind) {
+    "ephemeral" {
+      $paths += [pscustomobject]@{ Name = "ephemeral"; Path = (Get-SilmarilTargetStatePath -Port $Port -Kind "ephemeral") }
+      $paths += [pscustomobject]@{ Name = "legacy"; Path = (Get-SilmarilLegacyTargetStatePath -Port $Port) }
+    }
+    "pinned" {
+      $paths += [pscustomobject]@{ Name = "pinned"; Path = (Get-SilmarilTargetStatePath -Port $Port -Kind "pinned") }
+    }
+    default {
+      $paths += [pscustomobject]@{ Name = "ephemeral"; Path = (Get-SilmarilTargetStatePath -Port $Port -Kind "ephemeral") }
+      $paths += [pscustomobject]@{ Name = "pinned"; Path = (Get-SilmarilTargetStatePath -Port $Port -Kind "pinned") }
+      $paths += [pscustomobject]@{ Name = "legacy"; Path = (Get-SilmarilLegacyTargetStatePath -Port $Port) }
+    }
+  }
+
+  foreach ($entry in $paths) {
+    if ([string]::IsNullOrWhiteSpace([string]$entry.Path)) {
+      continue
+    }
+
+    if (Test-Path -LiteralPath $entry.Path) {
+      Remove-Item -LiteralPath $entry.Path -Force -ErrorAction SilentlyContinue
+      $removed[[string]$entry.Name] = -not (Test-Path -LiteralPath $entry.Path)
+    }
+  }
+
+  return [pscustomobject]$removed
+}
+
+function Get-SilmarilAllTargetStates {
+  param(
+    [int]$Port = 9222
+  )
+
+  return [pscustomobject]@{
+    pinned    = Get-SilmarilTargetState -Port $Port -Kind "pinned"
+    ephemeral = Get-SilmarilTargetState -Port $Port -Kind "ephemeral"
+  }
+}
+
+function ConvertTo-SilmarilTargetCandidate {
+  param(
+    [object]$Target,
+    [int]$Index = -1
+  )
+
+  return [ordered]@{
+    index        = $Index
+    id           = [string]$Target.id
+    title        = [string]$Target.title
+    url          = [string]$Target.url
+    type         = [string]$Target.type
+    isUserPage   = Test-SilmarilUserPageUrl -Url ([string]$Target.url)
+    isDefaultTab = Test-SilmarilDefaultTabUrl -Url ([string]$Target.url)
+  }
+}
+
+function Find-SilmarilTargetFromState {
+  param(
+    [object[]]$Pages,
+    [object]$State,
+    [string]$StatePrefix
+  )
+
+  if ($null -eq $State) {
+    return $null
+  }
+
+  $stateTargetId = [string]$State.id
+  if (-not [string]::IsNullOrWhiteSpace($stateTargetId)) {
+    $idMatches = @($Pages | Where-Object { [string]$_.id -eq $stateTargetId })
+    if ($idMatches.Count -gt 0) {
+      return [pscustomobject]@{
+        Target            = $idMatches[0]
+        TargetStateSource = ($StatePrefix + "-target-id")
+      }
+    }
+  }
+
+  $stateUrl = [string]$State.url
+  if (-not [string]::IsNullOrWhiteSpace($stateUrl)) {
+    $exactUrlMatches = @($Pages | Where-Object { [string]$_.url -eq $stateUrl })
+    if ($exactUrlMatches.Count -gt 0) {
+      return [pscustomobject]@{
+        Target            = $exactUrlMatches[0]
+        TargetStateSource = ($StatePrefix + "-url")
+      }
+    }
+
+    $comparableStateUrl = Get-SilmarilComparableUrl -Url $stateUrl
+    if (-not [string]::IsNullOrWhiteSpace($comparableStateUrl)) {
+      $comparableMatches = @(
+        $Pages |
+          Where-Object {
+            (Get-SilmarilComparableUrl -Url ([string]$_.url)) -eq $comparableStateUrl
+          }
+      )
+
+      if ($comparableMatches.Count -gt 0) {
+        return [pscustomobject]@{
+          Target            = $comparableMatches[0]
+          TargetStateSource = ($StatePrefix + "-comparable-url")
+        }
+      }
+    }
+  }
+
+  return $null
+}
+
+function Throw-SilmarilTargetAmbiguity {
+  param(
+    [int]$Port,
+    [string]$RequestedUrlMatch,
+    [object[]]$Candidates
+  )
+
+  $candidateList = @()
+  for ($i = 0; $i -lt @($Candidates).Count; $i += 1) {
+    $candidateList += ConvertTo-SilmarilTargetCandidate -Target $Candidates[$i] -Index $i
+  }
+
+  $payload = [ordered]@{
+    code              = "TARGET_AMBIGUOUS"
+    message           = "Multiple page targets matched regex: $RequestedUrlMatch"
+    hint              = "Refine --url-match, use --target-id, or pin a target with silmaril.cmd target-pin."
+    port              = $Port
+    requestedUrlMatch = $RequestedUrlMatch
+    candidateCount    = $candidateList.Count
+    candidates        = $candidateList
+  }
+
+  throw (New-SilmarilStructuredErrorMessage -Payload $payload)
+}
+
+function Normalize-SilmarilSelector {
+  param(
+    [string]$Selector
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Selector)) {
+    return $Selector
+  }
+
+  $normalized = $Selector.Trim()
+
+  if ($normalized.Length -ge 2) {
+    $first = $normalized[0]
+    $last = $normalized[$normalized.Length - 1]
+    if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
+      $normalized = $normalized.Substring(1, $normalized.Length - 2)
+    }
+  }
+
+  $normalized = $normalized.Replace([char]0x2018, "'").Replace([char]0x2019, "'")
+  $normalized = $normalized.Replace([char]0x201C, '"').Replace([char]0x201D, '"')
+
+  $pattern = '\[(?<name>[^\]\s~\|\^\$\*=]+)(?<before>\s*)(?<op>[~\|\^\$\*]?=)(?<after>\s*)(?<value>[^\]\s"''`]+)\]'
+  $normalized = [regex]::Replace(
+    $normalized,
+    $pattern,
+    {
+      param($match)
+
+      $name = [string]$match.Groups["name"].Value
+      $before = [string]$match.Groups["before"].Value
+      $op = [string]$match.Groups["op"].Value
+      $after = [string]$match.Groups["after"].Value
+      $value = [string]$match.Groups["value"].Value
+
+      if ([string]::IsNullOrWhiteSpace($value)) {
+        return $match.Value
+      }
+
+      if ($value.StartsWith('"') -or $value.StartsWith("'")) {
+        return $match.Value
+      }
+
+      $escapedValue = $value.Replace('\', '\\').Replace('"', '\"')
+      return "[{0}{1}{2}{3}`"{4}`"]" -f $name, $before, $op, $after, $escapedValue
+    }
+  )
+
+  return $normalized
+}
+
 function Get-SilmarilPageTargets {
   param(
     [int]$Port = 9222
@@ -374,11 +846,12 @@ function Get-SilmarilPageTargets {
   return $pages
 }
 
-function Get-SilmarilPreferredPageTarget {
+function Resolve-SilmarilPageTarget {
   param(
     [int]$Port = 9222,
     [string]$TargetId = $null,
-    [string]$UrlMatch = $null
+    [string]$UrlMatch = $null,
+    [switch]$IgnoreSessionState
   )
 
   if (-not [string]::IsNullOrWhiteSpace($TargetId) -and -not [string]::IsNullOrWhiteSpace($UrlMatch)) {
@@ -386,18 +859,37 @@ function Get-SilmarilPreferredPageTarget {
   }
 
   $pages = Get-SilmarilPageTargets -Port $Port
+  $selected = $null
+  $selectionMode = ""
+  $targetStateSource = ""
+  $candidateCount = 0
+  $pinnedState = $null
+  $ephemeralState = $null
 
   if (-not [string]::IsNullOrWhiteSpace($TargetId)) {
     $targetMatches = @($pages | Where-Object { [string]$_.id -eq $TargetId })
     if ($targetMatches.Count -eq 0) {
-      $availableIds = @($pages | ForEach-Object { [string]$_.id } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-      $availableJoined = if ($availableIds.Count -gt 0) { $availableIds -join ", " } else { "none" }
-      throw "Target id not found: $TargetId. Available target ids: $availableJoined"
+      $availableTargets = @(
+        $pages |
+          ForEach-Object {
+            $idPart = [string]$_.id
+            $urlPart = [string]$_.url
+            if ([string]::IsNullOrWhiteSpace($urlPart)) {
+              return $idPart
+            }
+            return ($idPart + " => " + $urlPart)
+          } |
+          Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+      )
+      $availableJoined = if ($availableTargets.Count -gt 0) { $availableTargets -join "; " } else { "none" }
+      throw "Target id not found: $TargetId. Available targets: $availableJoined"
     }
-    return $targetMatches[0]
-  }
 
-  if (-not [string]::IsNullOrWhiteSpace($UrlMatch)) {
+    $selected = $targetMatches[0]
+    $selectionMode = "explicit-target-id"
+    $targetStateSource = "explicit-target-id"
+  }
+  elseif (-not [string]::IsNullOrWhiteSpace($UrlMatch)) {
     try {
       [void][regex]::new($UrlMatch)
     }
@@ -414,30 +906,120 @@ function Get-SilmarilPreferredPageTarget {
       throw "No page target URL matched regex: $UrlMatch"
     }
 
-    $preferredUserMatched = @($urlMatches | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
-    if ($preferredUserMatched.Count -gt 0) {
-      return $preferredUserMatched[0]
+    $candidateCount = $urlMatches.Count
+    if ($urlMatches.Count -eq 1) {
+      $selected = $urlMatches[0]
+      $selectionMode = "explicit-url-match"
+      $targetStateSource = "explicit-url-match"
+    }
+    else {
+      $pinnedState = Get-SilmarilTargetState -Port $Port -Kind "pinned"
+      $pinnedMatch = Find-SilmarilTargetFromState -Pages $urlMatches -State $pinnedState -StatePrefix "pinned"
+      if ($null -ne $pinnedMatch) {
+        $selected = $pinnedMatch.Target
+        $selectionMode = "explicit-url-match"
+        $targetStateSource = [string]$pinnedMatch.TargetStateSource
+      }
+      else {
+        Throw-SilmarilTargetAmbiguity -Port $Port -RequestedUrlMatch $UrlMatch -Candidates $urlMatches
+      }
+    }
+  }
+  else {
+    if (-not $IgnoreSessionState) {
+      $pinnedState = Get-SilmarilTargetState -Port $Port -Kind "pinned"
+      $ephemeralState = Get-SilmarilTargetState -Port $Port -Kind "ephemeral"
     }
 
-    $preferredMatched = @($urlMatches | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
-    if ($preferredMatched.Count -gt 0) {
-      return $preferredMatched[0]
+    $savedSelection = Find-SilmarilTargetFromState -Pages $pages -State $pinnedState -StatePrefix "pinned"
+    if ($null -eq $savedSelection) {
+      $savedSelection = Find-SilmarilTargetFromState -Pages $pages -State $ephemeralState -StatePrefix "ephemeral"
     }
 
-    return $urlMatches[0]
+    if ($null -ne $savedSelection) {
+      $selected = $savedSelection.Target
+      $selectionMode = "saved-state"
+      $targetStateSource = [string]$savedSelection.TargetStateSource
+    }
+
+    if ($null -eq $selected) {
+      $preferredUserPages = @($pages | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
+      if ($preferredUserPages.Count -gt 0) {
+        $selected = $preferredUserPages[0]
+        $selectionMode = "fallback"
+        $targetStateSource = "preferred-user-page"
+      }
+      else {
+        $preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
+        if ($preferred.Count -gt 0) {
+          $selected = $preferred[0]
+          $selectionMode = "fallback"
+          $targetStateSource = "preferred-non-default-page"
+        }
+        else {
+          $selected = $pages[0]
+          $selectionMode = "fallback"
+          $targetStateSource = "first-page"
+        }
+      }
+    }
   }
 
-  $preferredUserPages = @($pages | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
-  if ($preferredUserPages.Count -gt 0) {
-    return $preferredUserPages[0]
+  Save-SilmarilTargetState -Port $Port -Target $selected -SelectionMode $selectionMode -Kind "ephemeral"
+
+  return [pscustomobject]@{
+    Target            = $selected
+    Port              = $Port
+    RequestedTargetId = $TargetId
+    RequestedUrlMatch = $UrlMatch
+    SelectionMode     = $selectionMode
+    TargetStateSource = $targetStateSource
+    ResolvedTargetId  = [string]$selected.id
+    ResolvedUrl       = [string]$selected.url
+    ResolvedTitle     = [string]$selected.title
+    PageCount         = @($pages).Count
+    CandidateCount    = $candidateCount
+  }
+}
+
+function Get-SilmarilPreferredPageTarget {
+  param(
+    [int]$Port = 9222,
+    [string]$TargetId = $null,
+    [string]$UrlMatch = $null
+  )
+
+  $resolved = Resolve-SilmarilPageTarget -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch
+  return $resolved.Target
+}
+
+function Add-SilmarilTargetMetadata {
+  param(
+    [hashtable]$Data = @{},
+    [object]$TargetContext
+  )
+
+  if ($null -eq $Data) {
+    $Data = [ordered]@{}
   }
 
-  $preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
-  if ($preferred.Count -gt 0) {
-    return $preferred[0]
+  if ($null -eq $TargetContext) {
+    return $Data
   }
 
-  return $pages[0]
+  $Data["resolvedTargetId"] = [string]$TargetContext.ResolvedTargetId
+  $Data["resolvedUrl"] = [string]$TargetContext.ResolvedUrl
+  $Data["resolvedTitle"] = [string]$TargetContext.ResolvedTitle
+  $Data["targetSelection"] = [string]$TargetContext.SelectionMode
+  $Data["targetStateSource"] = [string]$TargetContext.TargetStateSource
+  $Data["pageCount"] = [int]$TargetContext.PageCount
+  if ($TargetContext.PSObject.Properties.Name -contains "CandidateCount") {
+    $candidateCount = [int]$TargetContext.CandidateCount
+    if ($candidateCount -gt 0) {
+      $Data["candidateCount"] = $candidateCount
+    }
+  }
+  return $Data
 }
 
 function Invoke-SilmarilCdpCommand {
@@ -581,11 +1163,37 @@ function Invoke-SilmarilRuntimeEvaluate {
     throw "Runtime.evaluate expression cannot be empty."
   }
 
-  return Invoke-SilmarilCdpCommand -Target $Target -Method "Runtime.evaluate" -Params @{
-    expression    = $Expression
-    returnByValue = $true
-    awaitPromise  = $true
-  } -TimeoutSec $TimeoutSec
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+  $lastError = $null
+  while ([DateTime]::UtcNow -lt $deadline) {
+    try {
+      return Invoke-SilmarilCdpCommand -Target $Target -Method "Runtime.evaluate" -Params @{
+        expression    = $Expression
+        returnByValue = $true
+        awaitPromise  = $true
+      } -TimeoutSec $TimeoutSec
+    }
+    catch {
+      $lastError = $_.Exception
+      $message = [string]$lastError.Message
+      $isTransient = (
+        $message -match "Execution context was destroyed" -or
+        $message -match "Cannot find context with specified id"
+      )
+
+      if (-not $isTransient) {
+        throw
+      }
+
+      Start-Sleep -Milliseconds 150
+    }
+  }
+
+  if ($null -ne $lastError) {
+    throw $lastError
+  }
+
+  throw "Timed out waiting for Runtime.evaluate to stabilize."
 }
 
 function Get-SilmarilEvalValue {
@@ -672,7 +1280,7 @@ function Invoke-SilmarilSelectorWait {
     throw "PollMs must be >= 50."
   }
 
-  $selectorsJs = $selectorList | ConvertTo-Json -Compress
+  $selectorsJs = ConvertTo-Json -Compress -InputObject @($selectorList)
   $modeJs = $Mode | ConvertTo-Json -Compress
   $timeoutJs = [string]$TimeoutMs
   $pollJs = [string]$PollMs

@@ -16,19 +16,9 @@ if ($RemainingArgs.Count -ne 0) {
   throw "get-currentUrl takes no positional arguments. Supported flag: --port"
 }
 
-$pages = Get-SilmarilPageTargets -Port $port
-
-$preferredUserPages = @($pages | Where-Object { Test-SilmarilUserPageUrl -Url $_.url })
-if ($preferredUserPages.Count -gt 0) {
-  Write-SilmarilCommandResult -Command "get-currenturl" -Text $preferredUserPages[0].url -Data @{ url = $preferredUserPages[0].url; port = $port }
-  exit 0
-}
-
-# /json/list is typically ordered by most recently active target first.
-$preferred = @($pages | Where-Object { -not (Test-SilmarilDefaultTabUrl -Url $_.url) })
-if ($preferred.Count -gt 0) {
-  Write-SilmarilCommandResult -Command "get-currenturl" -Text $preferred[0].url -Data @{ url = $preferred[0].url; port = $port }
-  exit 0
-}
-
-Write-SilmarilCommandResult -Command "get-currenturl" -Text $pages[0].url -Data @{ url = $pages[0].url; port = $port }
+$targetContext = Resolve-SilmarilPageTarget -Port $port
+$target = $targetContext.Target
+Write-SilmarilCommandResult -Command "get-currenturl" -Text $target.url -Data (Add-SilmarilTargetMetadata -Data @{
+  url  = $target.url
+  port = $port
+} -TargetContext $targetContext)

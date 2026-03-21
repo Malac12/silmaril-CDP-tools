@@ -20,7 +20,10 @@ function Show-Usage {
   Write-Host "Usage:"
   Write-Host "  silmaril.cmd openbrowser [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  silmaril.cmd openUrl \"url\" [--port n] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd openurl-proxy \"url\" [--listen-host host] [--listen-port port] [--rules-file \"path\"] [--profile-dir \"path\"] [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  silmaril.cmd openurl-proxy \"url\" --allow-mitm [--allow-nonlocal-bind] [--listen-host host] [--listen-port port] [--rules-file \"path\"] [--profile-dir \"path\"] [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  silmaril.cmd target-show [--port n] [--json]"
+  Write-Host "  silmaril.cmd target-pin (--current | --target-id id | --url-match regex) --yes [--port n] [--json]"
+  Write-Host "  silmaril.cmd target-clear --yes [--port n] [--json]"
   Write-Host "  silmaril.cmd get-currentUrl [--port n] [--json]"
   Write-Host "  silmaril.cmd list-urls [--port n] [--json]"
   Write-Host "  silmaril.cmd get-dom [\"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
@@ -36,10 +39,10 @@ function Show-Usage {
   Write-Host "  silmaril.cmd wait-for-gone \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  silmaril.cmd wait-until-js \"expression\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  silmaril.cmd wait-for-mutation [\"selector\"] [--details] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd eval-js \"expression\" --yes [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd eval-js --file \"path-to-js\" --yes [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd proxy-override [--match \"url-regex\" --file \"local-file\" --yes] [--content-type \"mime\"] [--status code] [--rules-file \"path\"] [--listen-host host] [--listen-port port] [--mitmdump \"path\"] [--attach] [--dry-run] [--json]"
-  Write-Host "  silmaril.cmd proxy-switch --match \"url-regex\" --original-file \"path\" --saved-file \"path\" --use (original|saved) --yes [--status code] [--content-type \"mime\"] [--rules-file \"path\"] [--json]"
+  Write-Host "  silmaril.cmd eval-js \"expression\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  silmaril.cmd eval-js --file \"path-to-js\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  silmaril.cmd proxy-override [--allow-mitm] [--allow-nonlocal-bind] [--match \"url-regex\" --file \"local-file\" --yes] [--content-type \"mime\"] [--status code] [--rules-file \"path\"] [--listen-host host] [--listen-port port] [--mitmdump \"path\"] [--attach] [--dry-run] [--json]"
+  Write-Host "  silmaril.cmd proxy-switch --match \"url-regex\" --original-file \"path\" --saved-file \"path\" --use (original|saved) --allow-mitm --yes [--status code] [--content-type \"mime\"] [--rules-file \"path\"] [--json]"
   Write-Host "  silmaril.cmd get-source [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  silmaril.cmd run \"flow.json\" [--artifacts-dir \"path\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
 }
@@ -116,6 +119,9 @@ try {
     "openbrowser" { Invoke-CommandScript -CommandName "openbrowser" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "openurl" { Invoke-CommandScript -CommandName "openurl" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "openurl-proxy" { Invoke-CommandScript -CommandName "openurl-proxy" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "target-show" { Invoke-CommandScript -CommandName "target-show" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "target-pin" { Invoke-CommandScript -CommandName "target-pin" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "target-clear" { Invoke-CommandScript -CommandName "target-clear" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-currenturl" { Invoke-CommandScript -CommandName "get-currenturl" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "list-urls" { Invoke-CommandScript -CommandName "list-urls" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-dom" { Invoke-CommandScript -CommandName "get-dom" -CommandArgs $commandArgs -JsonOutput $jsonOutput }

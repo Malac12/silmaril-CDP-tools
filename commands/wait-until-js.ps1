@@ -30,7 +30,8 @@ $timeoutJs = [string]$timeoutMs
 $pollJs = [string]$pollMs
 $expression = "(async function(){ var cond = $conditionJs; var timeoutMs = $timeoutJs; var intervalMs = $pollJs; var started = Date.now(); var lastError = ''; while ((Date.now() - started) <= timeoutMs) { try { var fn = new Function('return (' + cond + ');'); var value = fn(); if (value) { return { ok: true, elapsedMs: Date.now() - started, valuePreview: String(value) }; } } catch (e) { lastError = String((e && e.message) ? e.message : e); } await new Promise(function(resolve){ setTimeout(resolve, intervalMs); }); } return { ok: false, reason: 'timeout', elapsedMs: Date.now() - started, lastError: lastError }; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 5000 -MinSeconds 20
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "wait-until-js"
@@ -51,7 +52,7 @@ if (($valueProps -contains "elapsedMs") -and $null -ne $value.elapsedMs) {
   $elapsed = [int]$value.elapsedMs
 }
 
-Write-SilmarilCommandResult -Command "wait-until-js" -Text "JS condition matched ($elapsed ms)" -Data @{
+Write-SilmarilCommandResult -Command "wait-until-js" -Text "JS condition matched ($elapsed ms)" -Data (Add-SilmarilTargetMetadata -Data @{
   expression = $jsCondition
   elapsedMs  = $elapsed
   port       = $port
@@ -59,4 +60,4 @@ Write-SilmarilCommandResult -Command "wait-until-js" -Text "JS condition matched
   pollMs     = $pollMs
   targetId   = $targetId
   urlMatch   = $urlMatch
-} -UseHost
+} -TargetContext $targetContext) -UseHost

@@ -87,6 +87,8 @@ silmaril.cmd wait-for-any ".result-list" ".empty-state" --counts --json
 ## 6. Quoting and Shell Pitfalls
 
 - In Windows shell, `<` and `>` may be interpreted as redirection.
+- Selector commands now normalize a few common shell-damaged forms, especially unquoted attribute values such as `[data-test=launch]` or `a[href^=/products/]`.
+- That normalization is a safety net, not a license to ignore quoting. For selectors or HTML/JS with spaces or shell metacharacters, keep quoting properly or move the payload into a file.
 - For HTML arguments, use PowerShell stop-parsing when needed:
 
 ```powershell
@@ -111,7 +113,7 @@ If PowerShell shows `>>`, your pasted JS likely opened an unfinished quote.
 Use file mode instead of pasting long code inline:
 
 ```powershell
-silmaril.cmd eval-js --file "D:\silmairl cdp\script.js" --yes
+silmaril.cmd eval-js --file "D:\silmairl cdp\script.js" --allow-unsafe-js --yes
 ```
 
 This avoids multiline quoting issues in terminal input.
@@ -134,7 +136,7 @@ JSON.stringify(
 )
 '@ | Set-Content C:\Users\hangx\expr.js -Encoding UTF8
 
-cmd /c C:\Users\hangx\AppData\Roaming\npm\silmaril.cmd eval-js --file "C:\Users\hangx\expr.js" --yes
+cmd /c C:\Users\hangx\AppData\Roaming\npm\silmaril.cmd eval-js --file "C:\Users\hangx\expr.js" --allow-unsafe-js --yes
 ```
 
 This avoids quoting/operator issues like && in inline shell strings.
@@ -184,7 +186,7 @@ Examples:
 ```powershell
 silmaril.cmd list-urls --json
 silmaril.cmd get-dom "#main" --json
-silmaril.cmd eval-js "document.title" --yes --json
+silmaril.cmd eval-js "document.title" --allow-unsafe-js --yes --json
 silmaril.cmd wait-for-mutation "#app" --details --json
 ```
 
@@ -237,21 +239,27 @@ silmaril.cmd set-text "#status" --text-file "C:\Users\hangx\status.txt" --yes --
 
 `eval-js --file` remains the preferred mode for complex JavaScript.
 
+Safeguard note:
+
+- `eval-js` now requires `--allow-unsafe-js` unless `SILMARIL_ALLOW_UNSAFE_JS=1` is already set for a trusted local session.
+
 JSON metadata notes:
 
 - File-mode command JSON includes `inputMode`, `filePath`, and `bytes`.
 - `eval-js --json` also includes `attempt` and `timeoutSec`.
+- `eval-js --isolate-scope --json` also includes `isolateScope: true` so callers can tell that the script was wrapped in an isolated async scope.
 Current reliability behavior:
 
 - Uses UTF-8 file loading via shared toolkit helper.
 - Uses a longer CDP timeout for file mode.
 - Retries once automatically on timeout-like CDP failures (not on JavaScript runtime exceptions).
 - Supports `--result-json` strict mode.
+- Supports `--isolate-scope` to avoid `const` and `let` redeclaration collisions when the same helper file is evaluated repeatedly in a live page session.
 
 Strict mode example:
 
 ```powershell
-silmaril.cmd eval-js --file "C:\Users\hangx\x.js" --yes --result-json --json
+silmaril.cmd eval-js --file "C:\Users\hangx\x.js" --allow-unsafe-js --yes --result-json --json
 ```
 
 - Fails unless the result is a valid JSON object/array.
@@ -260,11 +268,17 @@ silmaril.cmd eval-js --file "C:\Users\hangx\x.js" --yes --result-json --json
 Practical rule:
 
 - Try `--file` first for complex JS.
+- Add `--isolate-scope` when the script declares top-level helpers and may be rerun on the same page.
 - If it still hangs in your page context, fallback to a compact inline expression.
 
 ## 14. Local MITM Overrides
 
 To make page changes persist across refresh, use a local MITM proxy that serves local files for matched URLs.
+
+Safeguard note:
+
+- `proxy-override`, `proxy-switch`, and `openurl-proxy` now require `--allow-mitm` unless `SILMARIL_ALLOW_MITM=1` is already set for a trusted local session.
+- Proxy listeners stay loopback-only unless `--allow-nonlocal-bind` is explicitly provided.
 
 Toolkit files:
 
@@ -320,7 +334,7 @@ Start-Process -FilePath "C:\Program Files\Google\Chrome\Application\chrome.exe" 
 One-command workflow (write rule + start proxy):
 
 ```powershell
-silmaril.cmd proxy-override --match "https://www\\.example\\.com/assets/app\\.js$" --file "C:\Users\hangx\overrides\app.js" --yes
+silmaril.cmd proxy-override --allow-mitm --match "https://www\\.example\\.com/assets/app\\.js$" --file "C:\Users\hangx\overrides\app.js" --yes
 ```
 
 This command:
@@ -340,7 +354,7 @@ Useful flags:
 Autostart + open URL through proxy:
 
 ```powershell
-silmaril.cmd openurl-proxy "https://en.wikipedia.org/wiki/Pizza"
+silmaril.cmd openurl-proxy "https://en.wikipedia.org/wiki/Pizza" --allow-mitm
 ```
 
 Behavior:
@@ -352,8 +366,8 @@ Behavior:
 Switch a rule between original/saved files:
 
 ```powershell
-silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use original --yes
-silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use saved --yes
+silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use original --allow-mitm --yes
+silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use saved --allow-mitm --yes
 ```
 
 Notes:
@@ -377,12 +391,19 @@ Many commands now support the same targeting/timing flags:
 Targeting rule:
 
 - Use either `--target-id` or `--url-match` (not both).
+- When neither is provided, Silmaril prefers a pinned target for that CDP port, then the last ephemeral target, then falls back by prior URL if the target id changed after a rerender/navigation.
+- An explicit `--url-match` now throws a structured `TARGET_AMBIGUOUS` error if multiple tabs match and no pinned target breaks the tie.
+- Use `target-pin --yes` to make a target the default for a port, `target-show --json` to inspect the current pinned and ephemeral state, and `target-clear --yes` to remove stored target state.
+- `list-urls --json` now includes `targetStateSource`, `pinnedState`, `ephemeralState`, and per-target flags such as `isPinned`, `isEphemeral`, and `isSelected`.
+- Command JSON now includes `resolvedTargetId`, `resolvedUrl`, `resolvedTitle`, `targetSelection`, and `targetStateSource` so follow-up automation can audit which page target actually ran.
 
 Examples:
 
 ```powershell
 silmaril.cmd get-text "#title" --port 9223 --url-match "example\.com" --timeout-ms 8000 --json
 silmaril.cmd wait-for "#result" --target-id "ABCD1234" --timeout-ms 15000 --poll-ms 150 --json
+silmaril.cmd target-pin --current --port 9223 --yes --json
+silmaril.cmd target-show --port 9223 --json
 ```
 
 ## 16. Declarative Runbook Command

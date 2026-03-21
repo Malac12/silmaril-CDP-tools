@@ -43,19 +43,28 @@ if (-not $url.ToLowerInvariant().StartsWith("file:///")) {
 $endpoint = "http://127.0.0.1:$port/json/new?$endpointUrl"
 
 try {
-  Invoke-RestMethod -Method Put -Uri $endpoint -TimeoutSec $timeoutSec | Out-Null
+  $response = Invoke-RestMethod -Method Put -Uri $endpoint -TimeoutSec $timeoutSec
 }
 catch {
   try {
-    Invoke-RestMethod -Method Get -Uri $endpoint -TimeoutSec $timeoutSec | Out-Null
+    $response = Invoke-RestMethod -Method Get -Uri $endpoint -TimeoutSec $timeoutSec
   }
   catch {
     throw "Unable to open URL via CDP on port $port. Start browser first: silmaril.cmd openbrowser --port $port"
   }
 }
 
-Write-SilmarilCommandResult -Command "openurl" -Text "Opened URL via CDP: $url" -Data @{
+$data = [ordered]@{
   url       = $url
   port      = $port
   timeoutMs = $timeoutMs
-} -UseHost
+}
+if ($null -ne $response) {
+  Save-SilmarilTargetState -Port $port -Target $response -SelectionMode "openurl-new-target"
+  $data["resolvedTargetId"] = [string]$response.id
+  $data["resolvedUrl"] = [string]$response.url
+  $data["resolvedTitle"] = [string]$response.title
+  $data["targetSelection"] = "openurl-new-target"
+}
+
+Write-SilmarilCommandResult -Command "openurl" -Text "Opened URL via CDP: $url" -Data $data -UseHost

@@ -20,12 +20,14 @@ if ($RemainingArgs.Count -ne 1) {
   throw "wait-for-gone requires exactly one selector argument. Supported flags: --port, --target-id, --url-match, --timeout-ms, --poll-ms"
 }
 
-$selector = [string]$RemainingArgs[0]
-if ([string]::IsNullOrWhiteSpace($selector)) {
+$selectorInput = [string]$RemainingArgs[0]
+if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
+$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "gone" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for-gone"
 if ($null -eq $value) {
   throw "wait-for-gone result value is null."
@@ -34,14 +36,14 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
-    $message = "Invalid selector for wait-for-gone: $selector"
+    $message = "Invalid selector for wait-for-gone: $selectorInput"
     if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) {
       $message = "$message. $($value.message)"
     }
     throw $message
   }
 
-  throw "Timed out waiting for selector to disappear: $selector"
+  throw "Timed out waiting for selector to disappear: $selectorInput"
 }
 
 $elapsed = 0
@@ -49,12 +51,13 @@ if (($valueProps -contains "elapsedMs") -and $null -ne $value.elapsedMs) {
   $elapsed = [int]$value.elapsedMs
 }
 
-Write-SilmarilCommandResult -Command "wait-for-gone" -Text "Selector gone: $selector ($elapsed ms)" -Data @{
-  selector  = $selector
+Write-SilmarilCommandResult -Command "wait-for-gone" -Text "Selector gone: $selectorInput ($elapsed ms)" -Data (Add-SilmarilTargetMetadata -Data @{
+  selector  = $selectorInput
+  normalizedSelector = $selector
   elapsedMs = $elapsed
   port      = $port
   timeoutMs = $timeoutMs
   pollMs    = $pollMs
   targetId  = $targetId
   urlMatch  = $urlMatch
-} -UseHost
+} -TargetContext $targetContext) -UseHost

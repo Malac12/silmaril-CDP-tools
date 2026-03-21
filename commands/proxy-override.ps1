@@ -130,6 +130,8 @@ $confirmWrite = $false
 $attachMode = $false
 $dryRun = $false
 $mitmdumpOverride = $null
+$allowMitm = $false
+$allowNonLocalBind = $false
 
 $i = 0
 while ($i -lt $RemainingArgs.Count) {
@@ -222,6 +224,16 @@ while ($i -lt $RemainingArgs.Count) {
       $i += 1
       continue
     }
+    "--allow-mitm" {
+      $allowMitm = $true
+      $i += 1
+      continue
+    }
+    "--allow-nonlocal-bind" {
+      $allowNonLocalBind = $true
+      $i += 1
+      continue
+    }
     "--attach" {
       $attachMode = $true
       $i += 1
@@ -242,10 +254,22 @@ if (-not (Test-Path -LiteralPath $addonScript)) {
   throw "Missing mitm addon script: $addonScript"
 }
 
+Assert-SilmarilLoopbackListenHost -CommandName "proxy-override" -ListenHost $listenHost -AllowNonLocalBind $allowNonLocalBind
+
 $hasMatch = -not [string]::IsNullOrWhiteSpace($matchRegex)
 $hasFile = -not [string]::IsNullOrWhiteSpace($localFileRaw)
 if ($hasMatch -xor $hasFile) {
   throw "proxy-override requires both --match and --file together."
+}
+
+$acknowledgementSource = $null
+if (-not $dryRun) {
+  $acknowledgementSource = Resolve-SilmarilHighRiskAcknowledgement `
+    -CommandName "proxy-override" `
+    -FlagPresent $allowMitm `
+    -RequiredFlag "--allow-mitm" `
+    -EnvVar "SILMARIL_ALLOW_MITM" `
+    -RiskDescription "local proxy-based traffic interception and response overrides"
 }
 
 $resolvedRules = $rulesFile
@@ -367,6 +391,7 @@ $resultData = [ordered]@{
   listenPort  = $listenPort
   attach      = $attachMode
   dryRun      = $dryRun
+  safeguard   = if ($null -ne $acknowledgementSource) { $acknowledgementSource } else { "none" }
   rulePlanned = $rulePlanned
   ruleWritten = $didWriteRule
   ruleAction  = $ruleAction

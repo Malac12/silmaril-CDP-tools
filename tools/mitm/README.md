@@ -79,22 +79,27 @@ For CDP automation, add your normal `--remote-debugging-port=9222` and profile a
 
 For most usage, prefer the Silmaril commands instead of the manual steps above.
 
+Safeguards:
+
+- `proxy-override`, `proxy-switch`, and `openurl-proxy` require `--allow-mitm` unless `SILMARIL_ALLOW_MITM=1` is set for a trusted local session.
+- Proxy helpers keep `--listen-host` loopback-only unless `--allow-nonlocal-bind` is explicitly provided.
+
 Write or update a rule and auto-start the proxy:
 
 ```powershell
-silmaril.cmd proxy-override --match "https://www\\.example\\.com/assets/app\\.js$" --file "C:\Users\hangx\overrides\app.js" --yes
+silmaril.cmd proxy-override --allow-mitm --match "https://www\\.example\\.com/assets/app\\.js$" --file "C:\Users\hangx\overrides\app.js" --yes
 ```
 
 Open a URL through the proxy and auto-start it if needed:
 
 ```powershell
-silmaril.cmd openurl-proxy "https://en.wikipedia.org/wiki/Pizza"
+silmaril.cmd openurl-proxy "https://en.wikipedia.org/wiki/Pizza" --allow-mitm
 ```
 
 Switch a rule between original and saved files:
 
 ```powershell
-silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use saved --yes
+silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use saved --allow-mitm --yes
 ```
 
 ## Notes

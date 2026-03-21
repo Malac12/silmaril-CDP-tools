@@ -88,6 +88,8 @@ $listenHost = "127.0.0.1"
 $listenPort = 8080
 $rulesFile = Join-Path -Path $scriptRoot -ChildPath "tools\mitm\rules.json"
 $profileDir = Join-Path -Path $env:LOCALAPPDATA -ChildPath "Silmaril\chrome-proxy-safe-profile"
+$allowMitm = $false
+$allowNonLocalBind = $false
 $i = 0
 
 while ($i -lt $RemainingArgs.Count) {
@@ -143,6 +145,16 @@ while ($i -lt $RemainingArgs.Count) {
       $i += 2
       continue
     }
+    "--allow-mitm" {
+      $allowMitm = $true
+      $i += 1
+      continue
+    }
+    "--allow-nonlocal-bind" {
+      $allowNonLocalBind = $true
+      $i += 1
+      continue
+    }
     default {
       throw "Unsupported argument '$arg' for openurl-proxy."
     }
@@ -162,9 +174,18 @@ else {
   $url = Normalize-SilmarilUrl -InputUrl $rawTarget
 }
 
+$acknowledgementSource = Resolve-SilmarilHighRiskAcknowledgement `
+  -CommandName "openurl-proxy" `
+  -FlagPresent $allowMitm `
+  -RequiredFlag "--allow-mitm" `
+  -EnvVar "SILMARIL_ALLOW_MITM" `
+  -RiskDescription "local proxy-based traffic interception for browser navigation"
+
+Assert-SilmarilLoopbackListenHost -CommandName "openurl-proxy" -ListenHost $listenHost -AllowNonLocalBind $allowNonLocalBind
+
 $rulesResolved = Resolve-Path -LiteralPath $rulesFile -ErrorAction SilentlyContinue
 if (-not $rulesResolved) {
-  throw "Rules file not found: $rulesFile. Create a rule first with: silmaril.cmd proxy-override --match ""..."" --file ""..."" --yes"
+  throw "Rules file not found: $rulesFile. Create a rule first with: silmaril.cmd proxy-override --allow-mitm --match ""..."" --file ""..."" --yes"
 }
 $rulesFile = [string]$rulesResolved.Path
 
@@ -241,6 +262,7 @@ Write-SilmarilCommandResult -Command "openurl-proxy" -Text "Opened URL through p
   rulesFile    = $rulesFile
   profileDir   = $profileDir
   browserPath  = $browserPath
+  safeguard    = $acknowledgementSource
   port         = $cdpPort
   timeoutMs    = $timeoutMs
   pollMs       = $pollMs

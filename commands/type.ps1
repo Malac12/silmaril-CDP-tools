@@ -20,12 +20,13 @@ if ($RemainingArgs.Count -lt 3) {
   throw $usage
 }
 
-$selector = [string]$RemainingArgs[0]
+$selectorInput = [string]$RemainingArgs[0]
 $confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
 
-if ([string]::IsNullOrWhiteSpace($selector)) {
+if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
+$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 if ($confirmation -ne "--yes") {
   throw "type requires explicit confirmation flag --yes"
@@ -90,7 +91,8 @@ $selectorJs = $selector | ConvertTo-Json -Compress
 $textJs = $textValue | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var txt = $textJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; var tag = (el.tagName || '').toLowerCase(); var isEditable = !!el.isContentEditable || tag === 'input' || tag === 'textarea'; if (!isEditable) return { ok: false, reason: 'not_editable' }; if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); } if (typeof el.focus === 'function') { el.focus(); } if ('value' in el) { el.value = txt; if (typeof el.setSelectionRange === 'function') { try { var n = el.value.length; el.setSelectionRange(n, n); } catch (_) {} } } else { el.textContent = txt; } el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true }; })()"
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "type"
@@ -101,17 +103,18 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selector"
+    throw "No element matched selector: $selectorInput"
   }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_editable") {
-    throw "Element is not editable for selector: $selector"
+    throw "Element is not editable for selector: $selectorInput"
   }
 
-  throw "type failed for selector: $selector"
+  throw "type failed for selector: $selectorInput"
 }
 
 $data = [ordered]@{
-  selector    = $selector
+  selector    = $selectorInput
+  normalizedSelector = $selector
   inputMode   = $inputMode
   bytes       = $payloadBytes
   port        = $port
@@ -123,5 +126,5 @@ if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
   $data["filePath"] = $filePath
 }
 
-Write-SilmarilCommandResult -Command "type" -Text "Typed into selector: $selector" -Data $data -UseHost
+Write-SilmarilCommandResult -Command "type" -Text "Typed into selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data $data -TargetContext $targetContext) -UseHost
 

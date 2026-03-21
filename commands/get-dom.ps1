@@ -27,17 +27,20 @@ if ($RemainingArgs.Count -eq 1) {
     throw "Selector cannot be empty."
   }
 
+  $selector = Normalize-SilmarilSelector -Selector $selector
   $selectorJs = $selector | ConvertTo-Json -Compress
   $expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); return el ? el.outerHTML : null; })()"
 }
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$selectorInput = $selector
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-dom"
 if ($null -eq $value) {
   if ($selector) {
-    throw "No element matched selector: $selector"
+    throw "No element matched selector: $selectorInput"
   }
   throw "No DOM content returned."
 }
@@ -49,7 +52,8 @@ $resultData = [ordered]@{
   urlMatch = $urlMatch
 }
 if ($selector) {
-  $resultData["selector"] = $selector
+  $resultData["selector"] = $selectorInput
+  $resultData["normalizedSelector"] = $selector
 }
 
-Write-SilmarilCommandResult -Command "get-dom" -Text ([string]$value) -Data $resultData
+Write-SilmarilCommandResult -Command "get-dom" -Text ([string]$value) -Data (Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext)

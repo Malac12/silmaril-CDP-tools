@@ -17,6 +17,8 @@ Use this skill to operate the local Silmaril toolkit from PowerShell.
 
 Use this setup on Windows when the toolkit is not already present:
 
+Only clone or copy the toolkit after the user explicitly approves fetching or installing remote code.
+
 1. Clone or copy the repository:
 
    `git clone https://github.com/Malac12/CDP-tools.git "D:\silmairl cdp"`
@@ -48,8 +50,14 @@ This is sufficient for the core CDP workflow. No machine-wide PowerShell executi
 - Prefer live DOM commands over `get-source` when choosing selectors or checking rendered state.
 - Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
 - Use either `--target-id` or `--url-match` when multiple tabs exist; never use both together.
+- Use `target-show`, `target-pin --yes`, and `target-clear --yes` to manage persistent target selection instead of depending on tab order.
 - Pass `--yes` for page actions and mutations such as `click`, `type`, `set-text`, `set-html`, and `eval-js`.
+- Treat `eval-js`, `proxy-override`, `proxy-switch`, and `openurl-proxy` as high-risk commands.
+- Use `--allow-unsafe-js` for `eval-js`, or set `SILMARIL_ALLOW_UNSAFE_JS=1` only for a trusted local session.
+- Use `--allow-mitm` for proxy commands, or set `SILMARIL_ALLOW_MITM=1` only for a trusted local session.
+- Keep proxy listeners on loopback addresses unless the user explicitly requests `--allow-nonlocal-bind`.
 - Put long JavaScript in a file and use `eval-js --file` instead of pasting large inline expressions.
+- Add `--isolate-scope` when rerunning helper-heavy JS on the same live page to avoid top-level redeclaration errors.
 - Avoid fixed sleeps when a wait command can express the intended state.
 
 ## Command selection

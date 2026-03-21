@@ -35,10 +35,20 @@ foreach ($arg in $RemainingArgs) {
 }
 
 $resultJsonStrict = $false
+$allowUnsafeJs = $false
+$isolateScope = $false
 $filteredArgs = @()
 foreach ($arg in $RemainingArgs) {
   if ([string]::Equals([string]$arg, "--result-json", [System.StringComparison]::OrdinalIgnoreCase)) {
     $resultJsonStrict = $true
+    continue
+  }
+  if ([string]::Equals([string]$arg, "--allow-unsafe-js", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $allowUnsafeJs = $true
+    continue
+  }
+  if ([string]::Equals([string]$arg, "--isolate-scope", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $isolateScope = $true
     continue
   }
   $filteredArgs += [string]$arg
@@ -60,6 +70,13 @@ $confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
 if ($confirmation -ne "--yes") {
   throw "eval-js requires explicit confirmation flag --yes"
 }
+
+$acknowledgementSource = Resolve-SilmarilHighRiskAcknowledgement `
+  -CommandName "eval-js" `
+  -FlagPresent $allowUnsafeJs `
+  -RequiredFlag "--allow-unsafe-js" `
+  -EnvVar "SILMARIL_ALLOW_UNSAFE_JS" `
+  -RiskDescription "arbitrary page JavaScript execution"
 
 $payloadParts = @()
 if ($RemainingArgs.Count -gt 1) {
@@ -110,6 +127,11 @@ else {
   }
 
   $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($expressionInput)
+}
+
+if ($isolateScope) {
+  $sourceJs = $expressionInput | ConvertTo-Json -Compress
+  $expressionInput = "(async function(){ return await eval($sourceJs); })()"
 }
 
 $attemptUsed = 0
@@ -195,7 +217,8 @@ function Write-SilmarilEvalResult {
     [string]$Kind,
     [object]$Value,
     [string]$PlainText,
-    [hashtable]$Extra = @{}
+    [hashtable]$Extra = @{},
+    [object]$TargetContext = $null
   )
 
   if (Test-SilmarilJsonOutput) {
@@ -214,6 +237,8 @@ function Write-SilmarilEvalResult {
       targetId         = $targetId
       urlMatch         = $urlMatch
       timeoutMs        = $timeoutMs
+      safeguard        = $acknowledgementSource
+      isolateScope     = $isolateScope
     }
 
     if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
@@ -224,6 +249,8 @@ function Write-SilmarilEvalResult {
     foreach ($key in @($Extra.Keys)) {
       $payload[$key] = $Extra[$key]
     }
+
+    $payload = Add-SilmarilTargetMetadata -Data $payload -TargetContext $TargetContext
 
     Write-SilmarilJson -Value $payload -Depth 20
     return
@@ -278,7 +305,8 @@ function ConvertTo-SilmarilStrictJsonValue {
   throw "eval-js --result-json requires JSON object/array result."
 }
 
-$target = Get-SilmarilPreferredPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
 
 $baseTimeoutSec = 0
 if ($hadTimeoutFlag) {
@@ -335,27 +363,27 @@ if ($remoteProps -contains "value") {
   if ($resultJsonStrict) {
     $strictValue = ConvertTo-SilmarilStrictJsonValue -Candidate $value
     $strictText = $strictValue | ConvertTo-Json -Depth 20 -Compress
-    Write-SilmarilEvalResult -Kind "json" -Value $strictValue -PlainText $strictText
+    Write-SilmarilEvalResult -Kind "json" -Value $strictValue -PlainText $strictText -TargetContext $targetContext
     exit 0
   }
 
   if ($null -eq $value) {
-    Write-SilmarilEvalResult -Kind "null" -Value $null -PlainText "null"
+    Write-SilmarilEvalResult -Kind "null" -Value $null -PlainText "null" -TargetContext $targetContext
     exit 0
   }
 
   if ($value -is [string]) {
-    Write-SilmarilEvalResult -Kind "string" -Value $value -PlainText $value
+    Write-SilmarilEvalResult -Kind "string" -Value $value -PlainText $value -TargetContext $targetContext
     exit 0
   }
 
   if ($value -is [bool] -or $value -is [int] -or $value -is [long] -or $value -is [double] -or $value -is [decimal]) {
-    Write-SilmarilEvalResult -Kind "primitive" -Value $value -PlainText ([string]$value)
+    Write-SilmarilEvalResult -Kind "primitive" -Value $value -PlainText ([string]$value) -TargetContext $targetContext
     exit 0
   }
 
   $textJson = $value | ConvertTo-Json -Depth 20 -Compress
-  Write-SilmarilEvalResult -Kind "json" -Value $value -PlainText $textJson
+  Write-SilmarilEvalResult -Kind "json" -Value $value -PlainText $textJson -TargetContext $targetContext
   exit 0
 }
 
@@ -364,7 +392,7 @@ if ($remoteProps -contains "unserializableValue") {
     throw "eval-js --result-json requires JSON object/array result."
   }
   $uv = [string]$remoteObject.unserializableValue
-  Write-SilmarilEvalResult -Kind "unserializable" -Value $uv -PlainText $uv
+  Write-SilmarilEvalResult -Kind "unserializable" -Value $uv -PlainText $uv -TargetContext $targetContext
   exit 0
 }
 
@@ -372,7 +400,7 @@ if (($remoteProps -contains "type") -and [string]$remoteObject.type -eq "undefin
   if ($resultJsonStrict) {
     throw "eval-js --result-json requires JSON object/array result, but got undefined."
   }
-  Write-SilmarilEvalResult -Kind "undefined" -Value $null -PlainText "undefined" -Extra @{ raw = "undefined" }
+  Write-SilmarilEvalResult -Kind "undefined" -Value $null -PlainText "undefined" -Extra @{ raw = "undefined" } -TargetContext $targetContext
   exit 0
 }
 
@@ -381,7 +409,7 @@ if ($remoteProps -contains "description") {
     throw "eval-js --result-json requires JSON object/array result."
   }
   $desc = [string]$remoteObject.description
-  Write-SilmarilEvalResult -Kind "description" -Value $desc -PlainText $desc
+  Write-SilmarilEvalResult -Kind "description" -Value $desc -PlainText $desc -TargetContext $targetContext
   exit 0
 }
 

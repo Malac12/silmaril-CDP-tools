@@ -44,21 +44,41 @@ Use one explicit wait after each action instead of sleeping.
 Prefer inline `eval-js` only for short expressions:
 
 ```powershell
-& 'D:\silmairl cdp\silmaril.cmd' eval-js "document.title" --yes --json
+& 'D:\silmairl cdp\silmaril.cmd' eval-js "document.title" --allow-unsafe-js --yes --json
 ```
 
 Prefer file mode for longer logic:
 
 ```powershell
 Set-Content -LiteralPath 'C:\Users\hangx\silmaril-expr.js' -Encoding UTF8 -Value "JSON.stringify(Array.from(document.querySelectorAll('a[href]')).map(a => a.href))"
-& 'D:\silmairl cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --yes --json
+& 'D:\silmairl cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --allow-unsafe-js --yes --json
 ```
+
+If the file declares top-level helpers that may be reused on the same tab, isolate it:
+
+```powershell
+& 'D:\silmairl cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --allow-unsafe-js --yes --isolate-scope --json
+```
+
+High-risk rule:
+
+- `eval-js` requires `--allow-unsafe-js` unless `SILMARIL_ALLOW_UNSAFE_JS=1` is already set for a trusted local session.
+- Proxy commands require `--allow-mitm` unless `SILMARIL_ALLOW_MITM=1` is already set for a trusted local session.
+- Proxy listeners stay loopback-only unless `--allow-nonlocal-bind` is explicitly requested.
 
 ## Targeting rules
 
 - Use `--target-id` when a specific CDP page target is already known.
 - Use `--url-match` when selecting a page by URL pattern is simpler.
 - Never pass both flags in the same call.
+- When no targeting flag is passed, Silmaril prefers a pinned target for the port, then the last ephemeral target.
+- If `--url-match` hits multiple tabs, use `target-pin --yes` or `target-id` to break the tie instead of relying on tab order.
+
+Useful inspection commands:
+
+- `target-show --json` to inspect pinned and ephemeral state for a port.
+- `target-pin --current --yes --json` to make the current page the default target.
+- `target-clear --yes --json` to remove stored target state.
 
 ## Source files
 

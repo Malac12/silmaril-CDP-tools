@@ -20,6 +20,7 @@ $rulesFile = Join-Path -Path $scriptRoot -ChildPath "tools\mitm\rules.json"
 $statusCode = $null
 $contentType = $null
 $confirmWrite = $false
+$allowMitm = $false
 
 $i = 0
 while ($i -lt $RemainingArgs.Count) {
@@ -96,6 +97,11 @@ while ($i -lt $RemainingArgs.Count) {
       $i += 1
       continue
     }
+    "--allow-mitm" {
+      $allowMitm = $true
+      $i += 1
+      continue
+    }
     default {
       throw "Unsupported flag '$arg' for proxy-switch."
     }
@@ -117,6 +123,13 @@ if ([string]::IsNullOrWhiteSpace($useMode)) {
 if (-not $confirmWrite) {
   throw "proxy-switch requires explicit confirmation flag --yes."
 }
+
+$acknowledgementSource = Resolve-SilmarilHighRiskAcknowledgement `
+  -CommandName "proxy-switch" `
+  -FlagPresent $allowMitm `
+  -RequiredFlag "--allow-mitm" `
+  -EnvVar "SILMARIL_ALLOW_MITM" `
+  -RiskDescription "local proxy-based response override changes"
 
 $useLower = $useMode.ToLowerInvariant()
 if ($useLower -ne "original" -and $useLower -ne "saved") {
@@ -241,4 +254,5 @@ Write-SilmarilCommandResult -Command "proxy-switch" -Text "Switched rule to $use
   action       = $action
   status       = $finalStatus
   contentType  = $finalContentType
+  safeguard    = $acknowledgementSource
 }
