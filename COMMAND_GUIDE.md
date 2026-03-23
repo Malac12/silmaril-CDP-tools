@@ -393,9 +393,10 @@ Targeting rule:
 - Use either `--target-id` or `--url-match` (not both).
 - When neither is provided, Silmaril prefers a pinned target for that CDP port, then the last ephemeral target, then falls back by prior URL if the target id changed after a rerender/navigation.
 - An explicit `--url-match` now throws a structured `TARGET_AMBIGUOUS` error if multiple tabs match and no pinned target breaks the tie.
+- When a command resolves a page target, Silmaril now activates that tab in Chrome automatically so the visible tab follows the target that the command is using.
 - Use `target-pin --yes` to make a target the default for a port, `target-show --json` to inspect the current pinned and ephemeral state, and `target-clear --yes` to remove stored target state.
 - `list-urls --json` now includes `targetStateSource`, `pinnedState`, `ephemeralState`, and per-target flags such as `isPinned`, `isEphemeral`, and `isSelected`.
-- Command JSON now includes `resolvedTargetId`, `resolvedUrl`, `resolvedTitle`, `targetSelection`, and `targetStateSource` so follow-up automation can audit which page target actually ran.
+- Command JSON now includes `resolvedTargetId`, `resolvedUrl`, `resolvedTitle`, `targetSelection`, `targetStateSource`, and `targetActivated` so follow-up automation can audit which page target actually ran and whether Chrome visibly switched to it.
 
 Examples:
 

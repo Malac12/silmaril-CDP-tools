@@ -51,6 +51,7 @@ This is sufficient for the core CDP workflow. No machine-wide PowerShell executi
 - Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
 - Use either `--target-id` or `--url-match` when multiple tabs exist; never use both together.
 - Use `target-show`, `target-pin --yes`, and `target-clear --yes` to manage persistent target selection instead of depending on tab order.
+- Commands that resolve a page target now activate that tab automatically, so the visible Chrome tab follows the target being controlled.
 - Pass `--yes` for page actions and mutations such as `click`, `type`, `set-text`, `set-html`, and `eval-js`.
 - Treat `eval-js`, `proxy-override`, `proxy-switch`, and `openurl-proxy` as high-risk commands.
 - Use `--allow-unsafe-js` for `eval-js`, or set `SILMARIL_ALLOW_UNSAFE_JS=1` only for a trusted local session.

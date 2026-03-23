@@ -72,6 +72,7 @@ High-risk rule:
 - Use `--url-match` when selecting a page by URL pattern is simpler.
 - Never pass both flags in the same call.
 - When no targeting flag is passed, Silmaril prefers a pinned target for the port, then the last ephemeral target.
+- When a target is resolved, Silmaril activates that tab automatically so the visible browser tab follows the command target.
 - If `--url-match` hits multiple tabs, use `target-pin --yes` or `target-id` to break the tie instead of relying on tab order.
 
 Useful inspection commands:

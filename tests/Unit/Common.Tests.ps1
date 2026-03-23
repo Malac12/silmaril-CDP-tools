@@ -76,6 +76,15 @@ Describe 'Resolve-SilmarilPageTarget' {
   }
 
   It 'reuses the previous target id when page order changes' {
+    Mock Invoke-SilmarilActivateTarget {
+      [pscustomobject]@{
+        Attempted = $true
+        Activated = $true
+        Method    = 'http-activate'
+        Error     = $null
+      }
+    }
+
     Mock Get-SilmarilCdpTargets {
       @(
         [pscustomobject]@{ id = 'page-selected'; type = 'page'; url = 'https://selected.example.com'; title = 'Selected'; webSocketDebuggerUrl = 'ws://selected' },
@@ -87,6 +96,8 @@ Describe 'Resolve-SilmarilPageTarget' {
     $first.ResolvedTargetId | Should -Be 'page-selected'
     $first.SelectionMode | Should -Be 'fallback'
     $first.TargetStateSource | Should -Be 'preferred-user-page'
+    $first.TargetActivated | Should -BeTrue
+    $first.TargetActivationMethod | Should -Be 'http-activate'
 
     Mock Get-SilmarilCdpTargets {
       @(
@@ -99,9 +110,19 @@ Describe 'Resolve-SilmarilPageTarget' {
     $second.ResolvedTargetId | Should -Be 'page-selected'
     $second.SelectionMode | Should -Be 'saved-state'
     $second.TargetStateSource | Should -Be 'ephemeral-target-id'
+    Assert-MockCalled Invoke-SilmarilActivateTarget -Times 2 -Exactly
   }
 
   It 'falls back to the previous url when the target id changed after rerender' {
+    Mock Invoke-SilmarilActivateTarget {
+      [pscustomobject]@{
+        Attempted = $true
+        Activated = $true
+        Method    = 'http-activate'
+        Error     = $null
+      }
+    }
+
     Save-SilmarilTargetState -Port 9888 -Target ([pscustomobject]@{
       id = 'stale-target'
       type = 'page'
@@ -121,9 +142,19 @@ Describe 'Resolve-SilmarilPageTarget' {
     $resolved.ResolvedTargetId | Should -Be 'new-target'
     $resolved.SelectionMode | Should -Be 'saved-state'
     $resolved.TargetStateSource | Should -Be 'ephemeral-comparable-url'
+    $resolved.TargetActivated | Should -BeTrue
   }
 
   It 'prefers pinned state over ephemeral state' {
+    Mock Invoke-SilmarilActivateTarget {
+      [pscustomobject]@{
+        Attempted = $true
+        Activated = $true
+        Method    = 'http-activate'
+        Error     = $null
+      }
+    }
+
     Save-SilmarilTargetState -Port 9990 -Target ([pscustomobject]@{
       id = 'page-pinned'
       type = 'page'
@@ -150,6 +181,7 @@ Describe 'Resolve-SilmarilPageTarget' {
     $resolved = Resolve-SilmarilPageTarget -Port 9990
     $resolved.ResolvedTargetId | Should -Be 'page-pinned'
     $resolved.TargetStateSource | Should -Be 'pinned-target-id'
+    $resolved.TargetActivated | Should -BeTrue
   }
 
   It 'throws a structured ambiguity error for explicit url-match with multiple candidates and no pin' {
@@ -172,6 +204,15 @@ Describe 'Resolve-SilmarilPageTarget' {
   }
 
   It 'uses a pinned target to break explicit url-match ambiguity' {
+    Mock Invoke-SilmarilActivateTarget {
+      [pscustomobject]@{
+        Attempted = $true
+        Activated = $true
+        Method    = 'http-activate'
+        Error     = $null
+      }
+    }
+
     Save-SilmarilTargetState -Port 9992 -Target ([pscustomobject]@{
       id = 'page-b'
       type = 'page'
@@ -191,6 +232,29 @@ Describe 'Resolve-SilmarilPageTarget' {
     $resolved.ResolvedTargetId | Should -Be 'page-b'
     $resolved.SelectionMode | Should -Be 'explicit-url-match'
     $resolved.TargetStateSource | Should -Be 'pinned-target-id'
+    $resolved.TargetActivated | Should -BeTrue
+  }
+
+  It 'does not fail target resolution when visual activation fails' {
+    Mock Invoke-SilmarilActivateTarget {
+      [pscustomobject]@{
+        Attempted = $true
+        Activated = $false
+        Method    = 'http-activate'
+        Error     = 'activation failed'
+      }
+    }
+
+    Mock Get-SilmarilCdpTargets {
+      @(
+        [pscustomobject]@{ id = 'page-selected'; type = 'page'; url = 'https://selected.example.com'; title = 'Selected'; webSocketDebuggerUrl = 'ws://selected' }
+      )
+    }
+
+    $resolved = Resolve-SilmarilPageTarget -Port 9993
+    $resolved.ResolvedTargetId | Should -Be 'page-selected'
+    $resolved.TargetActivated | Should -BeFalse
+    $resolved.TargetActivationError | Should -Be 'activation failed'
   }
 }
 
@@ -228,5 +292,26 @@ Describe 'Get-SilmarilErrorContract' {
     $err.code | Should -Be 'TIMEOUT'
     $err.message | Should -Match 'Timed out'
     $err.hint | Should -Not -BeNullOrEmpty
+  }
+}
+
+Describe 'Add-SilmarilTargetMetadata' {
+  It 'includes target activation details when available' {
+    $data = Add-SilmarilTargetMetadata -Data @{} -TargetContext ([pscustomobject]@{
+      ResolvedTargetId         = 'page-1'
+      ResolvedUrl              = 'https://example.com'
+      ResolvedTitle            = 'Example'
+      SelectionMode            = 'explicit-target-id'
+      TargetStateSource        = 'explicit-target-id'
+      PageCount                = 2
+      CandidateCount           = 0
+      TargetActivated          = $false
+      TargetActivationMethod   = 'http-activate'
+      TargetActivationError    = 'activation failed'
+    })
+
+    $data.targetActivated | Should -BeFalse
+    $data.targetActivationMethod | Should -Be 'http-activate'
+    $data.targetActivationError | Should -Be 'activation failed'
   }
 }

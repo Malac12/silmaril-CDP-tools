@@ -60,11 +60,19 @@ $data = [ordered]@{
   timeoutMs = $timeoutMs
 }
 if ($null -ne $response) {
+  $activation = Invoke-SilmarilActivateTarget -Port $port -TargetId ([string]$response.id)
   Save-SilmarilTargetState -Port $port -Target $response -SelectionMode "openurl-new-target"
   $data["resolvedTargetId"] = [string]$response.id
   $data["resolvedUrl"] = [string]$response.url
   $data["resolvedTitle"] = [string]$response.title
   $data["targetSelection"] = "openurl-new-target"
+  $data["targetActivated"] = [bool]$activation.Activated
+  if (-not [string]::IsNullOrWhiteSpace([string]$activation.Method)) {
+    $data["targetActivationMethod"] = [string]$activation.Method
+  }
+  if (-not [string]::IsNullOrWhiteSpace([string]$activation.Error)) {
+    $data["targetActivationError"] = [string]$activation.Error
+  }
 }
 
 Write-SilmarilCommandResult -Command "openurl" -Text "Opened URL via CDP: $url" -Data $data -UseHost

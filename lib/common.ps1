@@ -438,6 +438,42 @@ function Test-SilmarilCdpReady {
   }
 }
 
+function Invoke-SilmarilActivateTarget {
+  param(
+    [int]$Port = 9222,
+    [string]$TargetId,
+    [int]$TimeoutSec = 2
+  )
+
+  if ([string]::IsNullOrWhiteSpace($TargetId)) {
+    return [pscustomobject]@{
+      Attempted = $false
+      Activated = $false
+      Method    = ""
+      Error     = $null
+    }
+  }
+
+  $endpoint = "http://127.0.0.1:$Port/json/activate/$([System.Uri]::EscapeDataString($TargetId))"
+  try {
+    Invoke-RestMethod -Method Get -Uri $endpoint -TimeoutSec $TimeoutSec | Out-Null
+    return [pscustomobject]@{
+      Attempted = $true
+      Activated = $true
+      Method    = "http-activate"
+      Error     = $null
+    }
+  }
+  catch {
+    return [pscustomobject]@{
+      Attempted = $true
+      Activated = $false
+      Method    = "http-activate"
+      Error     = [string]$_.Exception.Message
+    }
+  }
+}
+
 function Normalize-SilmarilUrl {
   param(
     [string]$InputUrl
@@ -865,6 +901,12 @@ function Resolve-SilmarilPageTarget {
   $candidateCount = 0
   $pinnedState = $null
   $ephemeralState = $null
+  $activation = [pscustomobject]@{
+    Attempted = $false
+    Activated = $false
+    Method    = ""
+    Error     = $null
+  }
 
   if (-not [string]::IsNullOrWhiteSpace($TargetId)) {
     $targetMatches = @($pages | Where-Object { [string]$_.id -eq $TargetId })
@@ -965,6 +1007,7 @@ function Resolve-SilmarilPageTarget {
     }
   }
 
+  $activation = Invoke-SilmarilActivateTarget -Port $Port -TargetId ([string]$selected.id)
   Save-SilmarilTargetState -Port $Port -Target $selected -SelectionMode $selectionMode -Kind "ephemeral"
 
   return [pscustomobject]@{
@@ -979,6 +1022,10 @@ function Resolve-SilmarilPageTarget {
     ResolvedTitle     = [string]$selected.title
     PageCount         = @($pages).Count
     CandidateCount    = $candidateCount
+    TargetActivated   = [bool]$activation.Activated
+    TargetActivationAttempted = [bool]$activation.Attempted
+    TargetActivationMethod = [string]$activation.Method
+    TargetActivationError = [string]$activation.Error
   }
 }
 
@@ -1017,6 +1064,21 @@ function Add-SilmarilTargetMetadata {
     $candidateCount = [int]$TargetContext.CandidateCount
     if ($candidateCount -gt 0) {
       $Data["candidateCount"] = $candidateCount
+    }
+  }
+  if ($TargetContext.PSObject.Properties.Name -contains "TargetActivated") {
+    $Data["targetActivated"] = [bool]$TargetContext.TargetActivated
+  }
+  if ($TargetContext.PSObject.Properties.Name -contains "TargetActivationMethod") {
+    $method = [string]$TargetContext.TargetActivationMethod
+    if (-not [string]::IsNullOrWhiteSpace($method)) {
+      $Data["targetActivationMethod"] = $method
+    }
+  }
+  if ($TargetContext.PSObject.Properties.Name -contains "TargetActivationError") {
+    $activationError = [string]$TargetContext.TargetActivationError
+    if (-not [string]::IsNullOrWhiteSpace($activationError)) {
+      $Data["targetActivationError"] = $activationError
     }
   }
   return $Data
