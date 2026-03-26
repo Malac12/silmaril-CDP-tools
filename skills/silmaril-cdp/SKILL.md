@@ -7,11 +7,17 @@ description: Browser automation, DOM inspection, page mutation, wait orchestrati
 
 Use this skill to operate the local Silmaril toolkit from PowerShell.
 
+## Local path hint
+
+- If a `LOCAL_PATHS.md` file exists beside this skill, read it first and treat it as the authoritative local installation path for the toolkit.
+
 ## Locate the toolkit
 
-- Prefer `D:\silmairl cdp\silmaril.cmd` in this environment.
-- If that path is missing, look for `silmaril.cmd` on `PATH` or in a nearby checkout.
-- Invoke from PowerShell with `& 'D:\silmairl cdp\silmaril.cmd' ...`.
+- Prefer the toolkit path recorded in `LOCAL_PATHS.md` when present.
+- Otherwise prefer `D:\silmairl cdp\silmaril.cmd` in this environment.
+- If that path is missing, also check `%USERPROFILE%\silmaril-cdp-tools\silmaril.cmd`.
+- If neither exists, look for `silmaril.cmd` on `PATH` or in a nearby checkout.
+- Invoke from PowerShell with `& '...\silmaril.cmd' ...`.
 
 ## Install the toolkit if missing
 
@@ -21,7 +27,7 @@ Only clone or copy the toolkit after the user explicitly approves fetching or in
 
 1. Clone or copy the repository:
 
-   `git clone https://github.com/Malac12/CDP-tools.git "D:\silmairl cdp"`
+   `git clone https://github.com/Malac12/silmaril-CDP-tools.git "D:\silmairl cdp"`
 
 2. Ensure Chrome, Chromium, or Edge is installed.
 

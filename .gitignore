@@ -1,0 +1,5 @@
+bridge-app/node_modules/
+bridge-app/dist/
+bridge-app/out/
+bridge-app/.vite/
+bridge-app/electron-*.zip
