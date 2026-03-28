@@ -53,4 +53,9 @@ if (Test-SilmarilJsonOutput) {
   exit 0
 }
 
+if ($urls.Count -eq 0) {
+  Write-Output "No URLs found"
+  exit 0
+}
+
 $urls | ForEach-Object { Write-Output $_ }

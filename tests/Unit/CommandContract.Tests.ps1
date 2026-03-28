@@ -1,9 +1,11 @@
 BeforeAll {
   $script:repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
   $script:entryScript = Join-Path $script:repoRoot 'silmaril.ps1'
+  . (Join-Path $script:repoRoot 'lib\common.ps1')
   $script:shellPath = (Get-Process -Id $PID).Path
   $script:shellArgs = @('-NoProfile')
-  if ($IsWindows) {
+  $script:isWindowsPlatform = (($PSVersionTable.PSEdition -eq 'Desktop') -or ($env:OS -eq 'Windows_NT') -or ((Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and $IsWindows))
+  if ($script:isWindowsPlatform) {
     $script:shellArgs += @('-ExecutionPolicy', 'Bypass')
   }
 
@@ -117,5 +119,31 @@ Describe 'Dispatcher Error Contract' {
 
     $payload.code | Should -Be 'INVALID_ARGUMENT'
     $payload.message | Should -Match '--yes'
+  }
+}
+
+Describe 'list-urls output contract' {
+  It 'prints a clear empty-state message in text mode when no page targets exist' {
+    Mock Get-SilmarilPageTargets { @() }
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        ResolvedTargetId = ''
+        ResolvedUrl = ''
+        ResolvedTitle = ''
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+      }
+    }
+    Mock Get-SilmarilAllTargetStates {
+      [pscustomobject]@{
+        pinned = $null
+        ephemeral = $null
+      }
+    }
+    Mock Test-SilmarilJsonOutput { $false }
+
+    $result = & (Join-Path $script:repoRoot 'commands\list-urls.ps1') -RemainingArgs @()
+
+    @($result) | Should -Be @('No URLs found')
   }
 }
