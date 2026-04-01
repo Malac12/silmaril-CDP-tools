@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 if (-not $RemainingArgs) {
   $RemainingArgs = @()
@@ -153,7 +153,7 @@ if (-not [string]::IsNullOrWhiteSpace($defaults.targetId) -and -not [string]::Is
 
 if ([string]::IsNullOrWhiteSpace($artifactsDir)) {
   $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-  $artifactsDir = Join-Path -Path $scriptRoot -ChildPath ("runs\\run-" + $timestamp)
+  $artifactsDir = Join-Path -Path $scriptRoot -ChildPath ("runs/run-" + $timestamp)
 }
 
 New-Item -Path $artifactsDir -ItemType Directory -Force | Out-Null
@@ -168,14 +168,12 @@ function Invoke-SilmarilJsonCommand {
     [string[]]$CommandArgs
   )
 
-  $args = @(
-    "-NoProfile"
-    "-ExecutionPolicy"
-    "Bypass"
-    "-File"
-    $entryScript
-    $CommandName
-  )
+  $shellPath = Get-SilmarilPowerShellPath
+  $args = @("-NoProfile")
+  if (Test-SilmarilWindowsPlatform) {
+    $args += @("-ExecutionPolicy", "Bypass")
+  }
+  $args += @("-File", $entryScript, $CommandName)
 
   if ($CommandArgs) {
     $args += @($CommandArgs)
@@ -183,7 +181,7 @@ function Invoke-SilmarilJsonCommand {
 
   $args += "--json"
 
-  $rawOutput = & powershell @args 2>&1
+  $rawOutput = & $shellPath @args 2>&1
   $exitCode = $LASTEXITCODE
 
   $lines = @()

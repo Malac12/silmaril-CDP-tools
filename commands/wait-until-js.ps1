@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 $common = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTargetSelection -AllowTimeout -AllowPoll
 $RemainingArgs = @($common.RemainingArgs)

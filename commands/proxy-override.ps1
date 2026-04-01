@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 if (-not $RemainingArgs) {
   $RemainingArgs = @()
@@ -25,11 +25,13 @@ function Resolve-SilmarilMitmdumpPath {
     return [string]$resolved.Path
   }
 
-  $defaultCandidate = Join-Path -Path $env:USERPROFILE -ChildPath "tools\mitmproxy\12.2.1\mitmdump.exe"
-  if (Test-Path -LiteralPath $defaultCandidate) {
-    $resolvedDefault = Resolve-Path -LiteralPath $defaultCandidate -ErrorAction SilentlyContinue
-    if ($resolvedDefault) {
-      return [string]$resolvedDefault.Path
+  if (Test-SilmarilWindowsPlatform) {
+    $defaultCandidate = Join-Path -Path (Get-SilmarilUserHome) -ChildPath "tools/mitmproxy/12.2.1/mitmdump.exe"
+    if (Test-Path -LiteralPath $defaultCandidate) {
+      $resolvedDefault = Resolve-Path -LiteralPath $defaultCandidate -ErrorAction SilentlyContinue
+      if ($resolvedDefault) {
+        return [string]$resolvedDefault.Path
+      }
     }
   }
 
@@ -42,54 +44,7 @@ function Resolve-SilmarilMitmdumpPath {
     return [string]$command.Source
   }
 
-  throw "mitmdump executable not found. Use --mitmdump ""path-to-mitmdump.exe""."
-}
-
-function Test-SilmarilPortListening {
-  param(
-    [int]$Port
-  )
-
-  try {
-    $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
-    foreach ($endpoint in @($listeners)) {
-      if ($null -ne $endpoint -and [int]$endpoint.Port -eq $Port) {
-        return $true
-      }
-    }
-  }
-  catch {
-    return $false
-  }
-
-  return $false
-}
-
-function Get-SilmarilListenPid {
-  param(
-    [int]$Port
-  )
-
-  try {
-    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
-      return $null
-    }
-
-    $listeners = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
-    if (-not $listeners) {
-      return $null
-    }
-
-    $first = @($listeners)[0]
-    if ($null -eq $first) {
-      return $null
-    }
-
-    return [int]$first.OwningProcess
-  }
-  catch {
-    return $null
-  }
+  throw "mitmdump executable not found. Use --mitmdump ""path-to-mitmdump""."
 }
 
 function ConvertTo-SilmarilArgumentLine {
@@ -118,8 +73,8 @@ function ConvertTo-SilmarilArgumentLine {
 }
 
 $repoRoot = $scriptRoot
-$addonScript = Join-Path -Path $repoRoot -ChildPath "tools\mitm\local_overrides.py"
-$rulesFile = Join-Path -Path $repoRoot -ChildPath "tools\mitm\rules.json"
+$addonScript = Join-Path -Path $repoRoot -ChildPath "tools/mitm/local_overrides.py"
+$rulesFile = Join-Path -Path $repoRoot -ChildPath "tools/mitm/rules.json"
 $listenHost = "127.0.0.1"
 $listenPort = 8080
 $matchRegex = $null
@@ -213,7 +168,7 @@ while ($i -lt $RemainingArgs.Count) {
     }
     "--mitmdump" {
       if (($i + 1) -ge $RemainingArgs.Count) {
-        throw "proxy-override --mitmdump requires a path to mitmdump.exe."
+        throw "proxy-override --mitmdump requires a path to mitmdump."
       }
       $mitmdumpOverride = [string]$RemainingArgs[$i + 1]
       $i += 2
@@ -469,10 +424,10 @@ try {
     }
 
     $resultData["started"] = $true
-    $listenPid = Get-SilmarilListenPid -Port $listenPort
-    if ($null -ne $listenPid) {
-      $resultData["pid"] = $listenPid
-    }
+      $listenPid = Get-SilmarilListenerPid -Port $listenPort
+      if ($null -ne $listenPid) {
+        $resultData["pid"] = $listenPid
+      }
     elseif (-not $process.HasExited) {
       $resultData["pid"] = $process.Id
     }

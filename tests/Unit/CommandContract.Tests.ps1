@@ -1,7 +1,7 @@
 BeforeAll {
   $script:repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
   $script:entryScript = Join-Path $script:repoRoot 'silmaril.ps1'
-  . (Join-Path $script:repoRoot 'lib\common.ps1')
+  . (Join-Path $script:repoRoot 'lib/common.ps1')
   $script:shellPath = (Get-Process -Id $PID).Path
   $script:shellArgs = @('-NoProfile')
   $script:isWindowsPlatform = (($PSVersionTable.PSEdition -eq 'Desktop') -or ($env:OS -eq 'Windows_NT') -or ((Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and $IsWindows))
@@ -142,7 +142,7 @@ Describe 'list-urls output contract' {
     }
     Mock Test-SilmarilJsonOutput { $false }
 
-    $result = & (Join-Path $script:repoRoot 'commands\list-urls.ps1') -RemainingArgs @()
+    $result = & (Join-Path $script:repoRoot 'commands/list-urls.ps1') -RemainingArgs @()
 
     @($result) | Should -Be @('No URLs found')
   }

@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 $parsed = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTimeout -AllowPoll -DefaultPort 9222 -DefaultTimeoutMs 3200 -DefaultPollMs 400
 $RemainingArgs = @($parsed.RemainingArgs)
@@ -18,7 +18,6 @@ if ($RemainingArgs.Count -ne 0) {
   throw "openbrowser takes no positional arguments. Supported flags: --port, --timeout-ms, --poll-ms"
 }
 
-$browserPath = Get-SilmarilBrowserPath
 $userDataDir = Get-SilmarilUserDataDir -Port $port
 New-Item -Path $userDataDir -ItemType Directory -Force | Out-Null
 
@@ -32,13 +31,7 @@ $launchArgs = @(
   "about:blank"
 )
 
-if ($browserPath) {
-  Start-Process -FilePath $browserPath -ArgumentList $launchArgs | Out-Null
-}
-else {
-  $browserPath = "chrome.exe"
-  Start-Process -FilePath $browserPath -ArgumentList $launchArgs | Out-Null
-}
+$browserPath = Start-SilmarilBrowserProcess -ArgumentList $launchArgs
 
 $ready = $false
 $deadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)

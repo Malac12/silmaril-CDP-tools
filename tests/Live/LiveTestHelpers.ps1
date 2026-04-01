@@ -1,6 +1,6 @@
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $entryScript = Join-Path $repoRoot 'silmaril.ps1'
-. (Join-Path $repoRoot 'lib\common.ps1')
+. (Join-Path $repoRoot 'lib/common.ps1')
 
 $script:shellPath = (Get-Process -Id $PID).Path
 $script:shellArgs = @('-NoProfile')

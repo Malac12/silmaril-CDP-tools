@@ -57,6 +57,7 @@ irm https://raw.githubusercontent.com/Malac12/silmaril-CDP-tools/main/install-br
 - Skill install: [INSTALL_SKILL.md](INSTALL_SKILL.md)
 - Bridge app install: [INSTALL_BRIDGE_APP.md](INSTALL_BRIDGE_APP.md)
 - Command guide: [COMMAND_GUIDE.md](COMMAND_GUIDE.md)
+- macOS CLI: [MACOS_CLI.md](MACOS_CLI.md)
 
 ## Positioning
 

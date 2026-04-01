@@ -1,8 +1,8 @@
 BeforeAll {
   $script:repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
   $script:entryScript = Join-Path $script:repoRoot 'silmaril.ps1'
-  $script:fixture = Join-Path $script:repoRoot 'tests\fixtures\smoke-page.html'
-  . (Join-Path $script:repoRoot 'lib\common.ps1')
+  $script:fixture = Join-Path $script:repoRoot 'tests/fixtures/smoke-page.html'
+  . (Join-Path $script:repoRoot 'lib/common.ps1')
 
   $script:shellPath = (Get-Process -Id $PID).Path
   $script:shellArgs = @('-NoProfile')

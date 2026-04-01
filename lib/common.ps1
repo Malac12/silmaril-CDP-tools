@@ -98,6 +98,237 @@ function Assert-SilmarilLoopbackListenHost {
   throw "$CommandName requires a loopback listen host unless --allow-nonlocal-bind is provided."
 }
 
+function Get-SilmarilPlatform {
+  $override = [string]$env:SILMARIL_PLATFORM
+  if (-not [string]::IsNullOrWhiteSpace($override)) {
+    $normalizedOverride = $override.Trim().ToLowerInvariant()
+    switch ($normalizedOverride) {
+      "windows" { return "windows" }
+      "macos" { return "macos" }
+      "linux" { return "linux" }
+      default { throw "Unsupported SILMARIL_PLATFORM override: $override" }
+    }
+  }
+
+  $isWindowsPlatform = (
+    ($PSVersionTable.PSEdition -eq "Desktop") -or
+    ($env:OS -eq "Windows_NT") -or
+    ((Get-Variable -Name IsWindows -ErrorAction SilentlyContinue) -and $IsWindows)
+  )
+  if ($isWindowsPlatform) {
+    return "windows"
+  }
+
+  $isMacPlatform = ((Get-Variable -Name IsMacOS -ErrorAction SilentlyContinue) -and $IsMacOS)
+  if ($isMacPlatform) {
+    return "macos"
+  }
+
+  return "linux"
+}
+
+function Test-SilmarilWindowsPlatform {
+  return ((Get-SilmarilPlatform) -eq "windows")
+}
+
+function Test-SilmarilMacOSPlatform {
+  return ((Get-SilmarilPlatform) -eq "macos")
+}
+
+function Get-SilmarilCliName {
+  $override = [string]$env:SILMARIL_CLI_NAME
+  if (-not [string]::IsNullOrWhiteSpace($override)) {
+    return $override.Trim()
+  }
+
+  if (Test-SilmarilWindowsPlatform) {
+    return "silmaril.cmd"
+  }
+
+  return "./silmaril-mac.sh"
+}
+
+function Get-SilmarilUserHome {
+  $homePath = [string]$env:HOME
+  if (-not [string]::IsNullOrWhiteSpace($homePath)) {
+    return $homePath
+  }
+
+  $userProfile = [string]$env:USERPROFILE
+  if (-not [string]::IsNullOrWhiteSpace($userProfile)) {
+    return $userProfile
+  }
+
+  try {
+    $profilePath = [Environment]::GetFolderPath("UserProfile")
+    if (-not [string]::IsNullOrWhiteSpace([string]$profilePath)) {
+      return [string]$profilePath
+    }
+  }
+  catch {
+    # Fall back below.
+  }
+
+  return [System.IO.Path]::GetTempPath()
+}
+
+function Get-SilmarilAppRoot {
+  $override = [string]$env:SILMARIL_APP_ROOT
+  if (-not [string]::IsNullOrWhiteSpace($override)) {
+    return $override
+  }
+
+  if (Test-SilmarilWindowsPlatform) {
+    $localAppData = [string]$env:LOCALAPPDATA
+    if (-not [string]::IsNullOrWhiteSpace($localAppData)) {
+      return (Join-Path -Path $localAppData -ChildPath "Silmaril")
+    }
+  }
+  elseif (Test-SilmarilMacOSPlatform) {
+    return (Join-Path -Path (Get-SilmarilUserHome) -ChildPath "Library/Application Support/Silmaril")
+  }
+  else {
+    return (Join-Path -Path (Get-SilmarilUserHome) -ChildPath ".local/share/Silmaril")
+  }
+
+  return (Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "Silmaril")
+}
+
+function Get-SilmarilPowerShellPath {
+  try {
+    $currentProcessPath = (Get-Process -Id $PID -ErrorAction Stop).Path
+    if (-not [string]::IsNullOrWhiteSpace([string]$currentProcessPath)) {
+      return [string]$currentProcessPath
+    }
+  }
+  catch {
+    # Fall back below.
+  }
+
+  if (Test-SilmarilWindowsPlatform) {
+    return "powershell"
+  }
+
+  return "pwsh"
+}
+
+function Get-SilmarilBrowserLaunchPath {
+  $browserPath = Get-SilmarilBrowserPath
+  if (-not [string]::IsNullOrWhiteSpace([string]$browserPath)) {
+    return [string]$browserPath
+  }
+
+  if (Test-SilmarilWindowsPlatform) {
+    return "chrome.exe"
+  }
+
+  if (Test-SilmarilMacOSPlatform) {
+    throw "Google Chrome was not found on this Mac. Install Google Chrome in /Applications or ~/Applications."
+  }
+
+  throw "Supported browser not found for platform $(Get-SilmarilPlatform)."
+}
+
+function Start-SilmarilBrowserProcess {
+  param(
+    [string[]]$ArgumentList
+  )
+
+  $launchPath = Get-SilmarilBrowserLaunchPath
+  Start-Process -FilePath $launchPath -ArgumentList $ArgumentList | Out-Null
+  return $launchPath
+}
+
+function Test-SilmarilPortListening {
+  param(
+    [int]$Port
+  )
+
+  try {
+    $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+    foreach ($endpoint in @($listeners)) {
+      if ($null -ne $endpoint -and [int]$endpoint.Port -eq $Port) {
+        return $true
+      }
+    }
+  }
+  catch {
+    return $false
+  }
+
+  return $false
+}
+
+function Get-SilmarilListenerPid {
+  param(
+    [string]$ListenHost = "",
+    [int]$Port
+  )
+
+  if (Test-SilmarilWindowsPlatform) {
+    try {
+      if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
+        return $null
+      }
+
+      $listenerMatches = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
+      if (-not $listenerMatches) {
+        return $null
+      }
+
+      $normalizedHost = [string]$ListenHost
+      if ([string]::IsNullOrWhiteSpace($normalizedHost)) {
+        $normalizedHost = "127.0.0.1"
+      }
+      $hostLower = $normalizedHost.ToLowerInvariant()
+
+      foreach ($conn in @($listenerMatches)) {
+        if ($null -eq $conn) {
+          continue
+        }
+
+        $addr = [string]$conn.LocalAddress
+        if (
+          $hostLower -eq "0.0.0.0" -or
+          $addr -eq $normalizedHost -or
+          $addr -eq "0.0.0.0" -or
+          $addr -eq "::" -or
+          $addr -eq "::1"
+        ) {
+          return [int]$conn.OwningProcess
+        }
+      }
+    }
+    catch {
+      return $null
+    }
+
+    return $null
+  }
+
+  try {
+    $lsofCommand = Get-Command "lsof" -ErrorAction SilentlyContinue
+    if (-not $lsofCommand) {
+      return $null
+    }
+
+    $lsofArgs = @("-nP", "-iTCP:$Port", "-sTCP:LISTEN", "-t")
+    $lsofOutput = & $lsofCommand.Source @lsofArgs 2>$null
+    $firstPid = @($lsofOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) | Select-Object -First 1
+    if (-not [string]::IsNullOrWhiteSpace([string]$firstPid)) {
+      $parsedPid = 0
+      if ([int]::TryParse([string]$firstPid, [ref]$parsedPid)) {
+        return $parsedPid
+      }
+    }
+  }
+  catch {
+    return $null
+  }
+
+  return $null
+}
+
 function Parse-SilmarilCommonArgs {
   param(
     [Alias("Args")][string[]]$InputArgs,
@@ -330,7 +561,7 @@ function Get-SilmarilErrorContract {
     $errorMessage -match "Start browser first"
   ) {
     $code = "CDP_UNAVAILABLE"
-    $hint = "Start a browser session first, for example: silmaril.cmd openbrowser --port 9222"
+    $hint = "Start a browser session first, for example: $(Get-SilmarilCliName) openbrowser --port 9222"
   }
   elseif ($errorMessage -match "Timed out" -or $errorMessage -match "timeout") {
     $code = "TIMEOUT"
@@ -371,6 +602,21 @@ function New-SilmarilStructuredErrorMessage {
 }
 
 function Get-SilmarilBrowserPath {
+  if (Test-SilmarilMacOSPlatform) {
+    $macCandidates = @(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      (Join-Path -Path (Get-SilmarilUserHome) -ChildPath "Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+
+    foreach ($candidate in $macCandidates) {
+      if (Test-Path -LiteralPath $candidate) {
+        return $candidate
+      }
+    }
+
+    return $null
+  }
+
   $roots = @(
     $env:ProgramFiles,
     ${env:ProgramFiles(x86)},
@@ -400,7 +646,11 @@ function Get-SilmarilUserDataDir {
     [int]$Port = 9222
   )
 
-  return (Join-Path -Path $env:LOCALAPPDATA -ChildPath ("Silmaril\chrome-cdp-profile-" + [string]$Port))
+  return (Join-Path -Path (Get-SilmarilAppRoot) -ChildPath ("chrome-cdp-profile-" + [string]$Port))
+}
+
+function Get-SilmarilProxyProfileDir {
+  return (Join-Path -Path (Get-SilmarilAppRoot) -ChildPath "chrome-proxy-safe-profile")
 }
 
 function Get-SilmarilCdpTargets {
@@ -414,7 +664,7 @@ function Get-SilmarilCdpTargets {
     $targets = Invoke-RestMethod -Method Get -Uri $targetsEndpoint -TimeoutSec $TimeoutSec
   }
   catch {
-    throw "Unable to query CDP on port $Port. Start browser first: silmaril.cmd openbrowser --port $Port"
+    throw "Unable to query CDP on port $Port. Start browser first: $(Get-SilmarilCliName) openbrowser --port $Port"
   }
 
   if (-not $targets) {
@@ -534,12 +784,7 @@ function Get-SilmarilStateRoot {
     return $override
   }
 
-  $localAppData = [string]$env:LOCALAPPDATA
-  if (-not [string]::IsNullOrWhiteSpace($localAppData)) {
-    return (Join-Path -Path $localAppData -ChildPath "Silmaril\state")
-  }
-
-  return (Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "Silmaril\state")
+  return (Join-Path -Path (Get-SilmarilAppRoot) -ChildPath "state")
 }
 
 function Get-SilmarilTargetStatePath {
@@ -807,7 +1052,7 @@ function Throw-SilmarilTargetAmbiguity {
   $payload = [ordered]@{
     code              = "TARGET_AMBIGUOUS"
     message           = "Multiple page targets matched regex: $RequestedUrlMatch"
-    hint              = "Refine --url-match, use --target-id, or pin a target with silmaril.cmd target-pin."
+    hint              = "Refine --url-match, use --target-id, or pin a target with $(Get-SilmarilCliName) target-pin."
     port              = $Port
     requestedUrlMatch = $RequestedUrlMatch
     candidateCount    = $candidateList.Count

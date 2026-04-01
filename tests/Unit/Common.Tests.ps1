@@ -1,6 +1,6 @@
 BeforeAll {
   $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-  . (Join-Path $repoRoot 'lib\common.ps1')
+  . (Join-Path $repoRoot 'lib/common.ps1')
 }
 
 Describe 'Parse-SilmarilCommonArgs' {
@@ -50,6 +50,76 @@ Describe 'High-risk helpers' {
     (Test-SilmarilLoopbackHost -ListenHost 'localhost') | Should -BeTrue
     (Test-SilmarilLoopbackHost -ListenHost '::1') | Should -BeTrue
     (Test-SilmarilLoopbackHost -ListenHost '0.0.0.0') | Should -BeFalse
+  }
+}
+
+Describe 'Platform helpers' {
+  BeforeEach {
+    $script:previousPlatform = $env:SILMARIL_PLATFORM
+    $script:previousCliName = $env:SILMARIL_CLI_NAME
+    $script:previousAppRoot = $env:SILMARIL_APP_ROOT
+    $script:previousHome = $env:HOME
+    $script:testHome = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+    New-Item -ItemType Directory -Force -Path $script:testHome | Out-Null
+  }
+
+  AfterEach {
+    if ($null -eq $script:previousPlatform) {
+      Remove-Item Env:SILMARIL_PLATFORM -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_PLATFORM = $script:previousPlatform
+    }
+
+    if ($null -eq $script:previousCliName) {
+      Remove-Item Env:SILMARIL_CLI_NAME -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_CLI_NAME = $script:previousCliName
+    }
+
+    if ($null -eq $script:previousAppRoot) {
+      Remove-Item Env:SILMARIL_APP_ROOT -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_APP_ROOT = $script:previousAppRoot
+    }
+
+    if ($null -eq $script:previousHome) {
+      Remove-Item Env:HOME -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:HOME = $script:previousHome
+    }
+
+    Remove-Item -LiteralPath $script:testHome -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  It 'switches to the mac CLI name when the platform override is macos' {
+    $env:SILMARIL_PLATFORM = 'macos'
+    Remove-Item Env:SILMARIL_CLI_NAME -ErrorAction SilentlyContinue
+
+    (Get-SilmarilCliName) | Should -Be './silmaril-mac.sh'
+  }
+
+  It 'builds a mac app root under Library/Application Support' {
+    $env:SILMARIL_PLATFORM = 'macos'
+    $env:HOME = $script:testHome
+
+    $normalized = (Get-SilmarilAppRoot).Replace('\', '/')
+    $normalized | Should -Be (($script:testHome.Replace('\', '/')) + '/Library/Application Support/Silmaril')
+  }
+
+  It 'finds Chrome inside a user Applications bundle on macos' {
+    $env:SILMARIL_PLATFORM = 'macos'
+    $env:HOME = $script:testHome
+    $chromeBundle = Join-Path $script:testHome 'Applications/Google Chrome.app/Contents/MacOS'
+    New-Item -ItemType Directory -Force -Path $chromeBundle | Out-Null
+    $chromeBinary = Join-Path $chromeBundle 'Google Chrome'
+    Set-Content -LiteralPath $chromeBinary -Value '#!/bin/sh' -Encoding UTF8
+
+    $resolved = (Get-SilmarilBrowserPath).Replace('\', '/')
+    $resolved | Should -Be ($chromeBinary.Replace('\', '/'))
   }
 }
 
@@ -292,6 +362,23 @@ Describe 'Get-SilmarilErrorContract' {
     $err.code | Should -Be 'TIMEOUT'
     $err.message | Should -Match 'Timed out'
     $err.hint | Should -Not -BeNullOrEmpty
+  }
+
+  It 'uses the active CLI name in CDP unavailable hints' {
+    $previousCliName = $env:SILMARIL_CLI_NAME
+    try {
+      $env:SILMARIL_CLI_NAME = './silmaril-mac.sh'
+      $err = Get-SilmarilErrorContract -Command 'openurl' -Message 'Start browser first'
+      $err.hint | Should -Match 'silmaril-mac\.sh'
+    }
+    finally {
+      if ($null -eq $previousCliName) {
+        Remove-Item Env:SILMARIL_CLI_NAME -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_CLI_NAME = $previousCliName
+      }
+    }
   }
 }
 

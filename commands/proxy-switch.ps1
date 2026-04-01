@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 if (-not $RemainingArgs) {
   $RemainingArgs = @()
@@ -16,7 +16,7 @@ $matchRegex = $null
 $originalFileRaw = $null
 $savedFileRaw = $null
 $useMode = $null
-$rulesFile = Join-Path -Path $scriptRoot -ChildPath "tools\mitm\rules.json"
+$rulesFile = Join-Path -Path $scriptRoot -ChildPath "tools/mitm/rules.json"
 $statusCode = $null
 $contentType = $null
 $confirmWrite = $false

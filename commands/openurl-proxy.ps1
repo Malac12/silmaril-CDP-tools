@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 if (-not $RemainingArgs) {
   $RemainingArgs = @()
@@ -17,47 +17,6 @@ $RemainingArgs = @($common.RemainingArgs)
 $cdpPort = [int]$common.Port
 $timeoutMs = [int]$common.TimeoutMs
 $pollMs = [int]$common.PollMs
-
-function Get-SilmarilListenerPid {
-  param(
-    [string]$ListenHost,
-    [int]$Port
-  )
-
-  try {
-    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
-      return $null
-    }
-
-    $listenerMatches = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue
-    if (-not $listenerMatches) {
-      return $null
-    }
-
-    foreach ($conn in @($listenerMatches)) {
-      if ($null -eq $conn) {
-        continue
-      }
-
-      $addr = [string]$conn.LocalAddress
-      $hostLower = $ListenHost.ToLowerInvariant()
-      if (
-        $hostLower -eq "0.0.0.0" -or
-        $addr -eq $ListenHost -or
-        $addr -eq "0.0.0.0" -or
-        $addr -eq "::" -or
-        $addr -eq "::1"
-      ) {
-        return [int]$conn.OwningProcess
-      }
-    }
-  }
-  catch {
-    return $null
-  }
-
-  return $null
-}
 
 function Wait-SilmarilListener {
   param(
@@ -86,8 +45,8 @@ if ($RemainingArgs.Count -lt 1) {
 $rawTarget = $null
 $listenHost = "127.0.0.1"
 $listenPort = 8080
-$rulesFile = Join-Path -Path $scriptRoot -ChildPath "tools\mitm\rules.json"
-$profileDir = Join-Path -Path $env:LOCALAPPDATA -ChildPath "Silmaril\chrome-proxy-safe-profile"
+$rulesFile = Join-Path -Path $scriptRoot -ChildPath "tools/mitm/rules.json"
+$profileDir = Get-SilmarilProxyProfileDir
 $allowMitm = $false
 $allowNonLocalBind = $false
 $i = 0
@@ -185,7 +144,7 @@ Assert-SilmarilLoopbackListenHost -CommandName "openurl-proxy" -ListenHost $list
 
 $rulesResolved = Resolve-Path -LiteralPath $rulesFile -ErrorAction SilentlyContinue
 if (-not $rulesResolved) {
-  throw "Rules file not found: $rulesFile. Create a rule first with: silmaril.cmd proxy-override --allow-mitm --match ""..."" --file ""..."" --yes"
+  throw "Rules file not found: $rulesFile. Create a rule first with: $(Get-SilmarilCliName) proxy-override --allow-mitm --match ""..."" --file ""..."" --yes"
 }
 $rulesFile = [string]$rulesResolved.Path
 
@@ -198,7 +157,7 @@ if ($null -ne $listenerPid) {
   }
 }
 else {
-  $proxyScript = Join-Path -Path $scriptRoot -ChildPath "commands\proxy-override.ps1"
+  $proxyScript = Join-Path -Path $scriptRoot -ChildPath "commands/proxy-override.ps1"
   if (-not (Test-Path -LiteralPath $proxyScript)) {
     throw "Missing proxy command script: $proxyScript"
   }
@@ -219,11 +178,6 @@ else {
   }
 }
 
-$browserPath = Get-SilmarilBrowserPath
-if ([string]::IsNullOrWhiteSpace($browserPath)) {
-  $browserPath = "chrome.exe"
-}
-
 New-Item -Path $profileDir -ItemType Directory -Force | Out-Null
 
 $launchArgs = @(
@@ -237,7 +191,7 @@ $launchArgs = @(
   $url
 )
 
-Start-Process -FilePath $browserPath -ArgumentList $launchArgs | Out-Null
+$browserPath = Start-SilmarilBrowserProcess -ArgumentList $launchArgs
 
 $cdpReady = $false
 $cdpDeadline = [DateTime]::UtcNow.AddMilliseconds($timeoutMs)

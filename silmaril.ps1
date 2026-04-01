@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$commonPath = Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1"
+$commonPath = Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1"
 
 if (-not (Test-Path -Path $commonPath)) {
   Write-Error "Missing required file: $commonPath"
@@ -17,34 +17,35 @@ if (-not (Test-Path -Path $commonPath)) {
 . $commonPath
 
 function Show-Usage {
+  $cliName = Get-SilmarilCliName
   Write-Host "Usage:"
-  Write-Host "  silmaril.cmd openbrowser [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd openUrl \"url\" [--port n] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd openurl-proxy \"url\" --allow-mitm [--allow-nonlocal-bind] [--listen-host host] [--listen-port port] [--rules-file \"path\"] [--profile-dir \"path\"] [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd target-show [--port n] [--json]"
-  Write-Host "  silmaril.cmd target-pin (--current | --target-id id | --url-match regex) --yes [--port n] [--json]"
-  Write-Host "  silmaril.cmd target-clear --yes [--port n] [--json]"
-  Write-Host "  silmaril.cmd get-currentUrl [--port n] [--json]"
-  Write-Host "  silmaril.cmd list-urls [--port n] [--json]"
-  Write-Host "  silmaril.cmd get-dom [\"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd get-text \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd exists \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd set-html \"selector\" (\"html\" | --html-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd set-text \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd type \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd click \"selector\" --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd wait-for \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd wait-for-any \"selector1\" \"selector2\" [\"selectorN\"...] [--counts] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd wait-for-gone \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd wait-until-js \"expression\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd wait-for-mutation [\"selector\"] [--details] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  silmaril.cmd eval-js \"expression\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd eval-js --file \"path-to-js\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd proxy-override [--allow-mitm] [--allow-nonlocal-bind] [--match \"url-regex\" --file \"local-file\" --yes] [--content-type \"mime\"] [--status code] [--rules-file \"path\"] [--listen-host host] [--listen-port port] [--mitmdump \"path\"] [--attach] [--dry-run] [--json]"
-  Write-Host "  silmaril.cmd proxy-switch --match \"url-regex\" --original-file \"path\" --saved-file \"path\" --use (original|saved) --allow-mitm --yes [--status code] [--content-type \"mime\"] [--rules-file \"path\"] [--json]"
-  Write-Host "  silmaril.cmd get-source [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  silmaril.cmd run \"flow.json\" [--artifacts-dir \"path\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName openbrowser [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName openUrl \"url\" [--port n] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName openurl-proxy \"url\" --allow-mitm [--allow-nonlocal-bind] [--listen-host host] [--listen-port port] [--rules-file \"path\"] [--profile-dir \"path\"] [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName target-show [--port n] [--json]"
+  Write-Host "  $cliName target-pin (--current | --target-id id | --url-match regex) --yes [--port n] [--json]"
+  Write-Host "  $cliName target-clear --yes [--port n] [--json]"
+  Write-Host "  $cliName get-currentUrl [--port n] [--json]"
+  Write-Host "  $cliName list-urls [--port n] [--json]"
+  Write-Host "  $cliName get-dom [\"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName get-text \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName exists \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName set-html \"selector\" (\"html\" | --html-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName set-text \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName type \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName click \"selector\" --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName wait-for \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-any \"selector1\" \"selector2\" [\"selectorN\"...] [--counts] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-gone \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-until-js \"expression\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-mutation [\"selector\"] [--details] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName eval-js \"expression\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName eval-js --file \"path-to-js\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName proxy-override [--allow-mitm] [--allow-nonlocal-bind] [--match \"url-regex\" --file \"local-file\" --yes] [--content-type \"mime\"] [--status code] [--rules-file \"path\"] [--listen-host host] [--listen-port port] [--mitmdump \"path\"] [--attach] [--dry-run] [--json]"
+  Write-Host "  $cliName proxy-switch --match \"url-regex\" --original-file \"path\" --saved-file \"path\" --use (original|saved) --allow-mitm --yes [--status code] [--content-type \"mime\"] [--rules-file \"path\"] [--json]"
+  Write-Host "  $cliName get-source [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName run \"flow.json\" [--artifacts-dir \"path\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
 }
 
 function Invoke-CommandScript {
@@ -54,7 +55,7 @@ function Invoke-CommandScript {
     [bool]$JsonOutput = $false
   )
 
-  $commandScript = Join-Path -Path $scriptRoot -ChildPath ("commands\" + $CommandName + ".ps1")
+  $commandScript = Join-Path -Path $scriptRoot -ChildPath ("commands/" + $CommandName + ".ps1")
   if (-not (Test-Path -Path $commandScript)) {
     throw "Missing command implementation: $commandScript"
   }

@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-. (Join-Path -Path $scriptRoot -ChildPath "lib\common.ps1")
+. (Join-Path -Path $scriptRoot -ChildPath "lib/common.ps1")
 
 $parsed = Parse-SilmarilCommonArgs -Args $RemainingArgs -AllowPort -AllowTimeout -DefaultPort 9222 -DefaultTimeoutMs 5000
 $RemainingArgs = @($parsed.RemainingArgs)
@@ -50,7 +50,7 @@ catch {
     $response = Invoke-RestMethod -Method Get -Uri $endpoint -TimeoutSec $timeoutSec
   }
   catch {
-    throw "Unable to open URL via CDP on port $port. Start browser first: silmaril.cmd openbrowser --port $port"
+    throw "Unable to open URL via CDP on port $port. Start browser first: $(Get-SilmarilCliName) openbrowser --port $port"
   }
 }
 

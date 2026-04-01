@@ -7,9 +7,9 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$unitPath = Join-Path $repoRoot 'tests\Unit'
-$integrationPath = Join-Path $repoRoot 'tests\Integration'
-$livePath = Join-Path $repoRoot 'tests\Live'
+$unitPath = Join-Path $repoRoot 'tests/Unit'
+$integrationPath = Join-Path $repoRoot 'tests/Integration'
+$livePath = Join-Path $repoRoot 'tests/Live'
 
 $paths = @($unitPath)
 $config = New-PesterConfiguration
