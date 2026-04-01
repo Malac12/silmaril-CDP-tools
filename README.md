@@ -35,7 +35,6 @@ Silmaril provides a local command layer over Chrome DevTools Protocol workflows,
 It also includes:
 
 - a Codex / Claude skill install path
-- a local Electron bridge app
 - JSON-friendly command output for agent workflows
 
 ## Quick Start
@@ -46,16 +45,9 @@ Install the skill:
 irm https://raw.githubusercontent.com/Malac12/silmaril-CDP-tools/main/install-skill.ps1 | iex
 ```
 
-Install the Electron bridge app:
-
-```powershell
-irm https://raw.githubusercontent.com/Malac12/silmaril-CDP-tools/main/install-bridge-app.ps1 | iex
-```
-
 ## Documentation
 
 - Skill install: [INSTALL_SKILL.md](INSTALL_SKILL.md)
-- Bridge app install: [INSTALL_BRIDGE_APP.md](INSTALL_BRIDGE_APP.md)
 - Command guide: [COMMAND_GUIDE.md](COMMAND_GUIDE.md)
 - macOS CLI: [MACOS_CLI.md](MACOS_CLI.md)
 

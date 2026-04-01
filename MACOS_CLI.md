@@ -5,7 +5,6 @@ This repository now includes a macOS CLI entrypoint for the core Silmaril toolki
 ## Scope
 
 - Included: the PowerShell-based CLI toolkit and command surface
-- Not included: the Electron bridge app
 - First browser target: Google Chrome on macOS
 
 ## Prerequisites
