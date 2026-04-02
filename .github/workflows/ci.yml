@@ -37,6 +37,25 @@ jobs:
         run: |
           & "${{ github.workspace }}\tests\Run-Tests.ps1"
 
+  macos-smoke:
+    runs-on: macos-latest
+    needs: lint-and-unit
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+
+      - name: macOS Smoke
+        shell: pwsh
+        env:
+          SILMARIL_BROWSER_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: |
+          & "${{ github.workspace }}/tests/Run-Mac-Smoke.ps1" -SilmarilCommand "${{ github.workspace }}/silmaril-mac.sh"
+
   integration-smoke:
     if: github.event_name == 'workflow_dispatch' && inputs.run_integration == true
     runs-on: windows-latest

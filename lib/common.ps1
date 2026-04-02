@@ -602,6 +602,20 @@ function New-SilmarilStructuredErrorMessage {
 }
 
 function Get-SilmarilBrowserPath {
+  $override = [string]$env:SILMARIL_BROWSER_PATH
+  if (-not [string]::IsNullOrWhiteSpace($override)) {
+    if (Test-Path -LiteralPath $override) {
+      $resolvedOverride = Resolve-Path -LiteralPath $override -ErrorAction SilentlyContinue
+      if ($resolvedOverride) {
+        return [string]$resolvedOverride.Path
+      }
+
+      return $override
+    }
+
+    throw "Configured SILMARIL_BROWSER_PATH does not exist: $override"
+  }
+
   if (Test-SilmarilMacOSPlatform) {
     $macCandidates = @(
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",

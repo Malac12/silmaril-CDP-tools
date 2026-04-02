@@ -58,6 +58,7 @@ Describe 'Platform helpers' {
     $script:previousPlatform = $env:SILMARIL_PLATFORM
     $script:previousCliName = $env:SILMARIL_CLI_NAME
     $script:previousAppRoot = $env:SILMARIL_APP_ROOT
+    $script:previousBrowserPath = $env:SILMARIL_BROWSER_PATH
     $script:previousHome = $env:HOME
     $script:testHome = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
     New-Item -ItemType Directory -Force -Path $script:testHome | Out-Null
@@ -83,6 +84,13 @@ Describe 'Platform helpers' {
     }
     else {
       $env:SILMARIL_APP_ROOT = $script:previousAppRoot
+    }
+
+    if ($null -eq $script:previousBrowserPath) {
+      Remove-Item Env:SILMARIL_BROWSER_PATH -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_BROWSER_PATH = $script:previousBrowserPath
     }
 
     if ($null -eq $script:previousHome) {
@@ -120,6 +128,16 @@ Describe 'Platform helpers' {
 
     $resolved = (Get-SilmarilBrowserPath).Replace('\', '/')
     $resolved | Should -Be ($chromeBinary.Replace('\', '/'))
+  }
+
+  It 'prefers the explicit browser path override when configured' {
+    $env:SILMARIL_PLATFORM = 'macos'
+    $overrideBinary = Join-Path $script:testHome 'chrome-from-env'
+    Set-Content -LiteralPath $overrideBinary -Value '#!/bin/sh' -Encoding UTF8
+    $env:SILMARIL_BROWSER_PATH = $overrideBinary
+
+    $resolved = (Get-SilmarilBrowserPath).Replace('\', '/')
+    $resolved | Should -Be ($overrideBinary.Replace('\', '/'))
   }
 }
 
