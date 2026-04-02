@@ -40,6 +40,7 @@ jobs:
   macos-smoke:
     runs-on: macos-latest
     needs: lint-and-unit
+    timeout-minutes: 10
 
     steps:
       - name: Checkout

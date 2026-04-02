@@ -1369,20 +1369,54 @@ function Invoke-SilmarilCdpCommand {
 
   try {
     $uri = [System.Uri]$Target.webSocketDebuggerUrl
-    $token = [System.Threading.CancellationToken]::None
-    $socket.ConnectAsync($uri, $token).GetAwaiter().GetResult()
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+    $connectTimeout = [System.Threading.CancellationTokenSource]::new()
+    try {
+      $connectTimeout.CancelAfter([TimeSpan]::FromSeconds($TimeoutSec))
+      $socket.ConnectAsync($uri, $connectTimeout.Token).GetAwaiter().GetResult()
+    }
+    catch [System.OperationCanceledException] {
+      throw "Timed out connecting CDP WebSocket for '$Method'."
+    }
+    finally {
+      $connectTimeout.Dispose()
+    }
 
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
     $sendSegment = [ArraySegment[byte]]::new($bytes)
-    $socket.SendAsync($sendSegment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $token).GetAwaiter().GetResult()
+    $sendTimeout = [System.Threading.CancellationTokenSource]::new()
+    try {
+      $sendTimeout.CancelAfter([TimeSpan]::FromSeconds($TimeoutSec))
+      $socket.SendAsync($sendSegment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $sendTimeout.Token).GetAwaiter().GetResult()
+    }
+    catch [System.OperationCanceledException] {
+      throw "Timed out sending CDP request '$Method'."
+    }
+    finally {
+      $sendTimeout.Dispose()
+    }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
     while ([DateTime]::UtcNow -lt $deadline) {
       $buffer = New-Object byte[] 65536
       $messageStream = New-Object System.IO.MemoryStream
       do {
         $readSegment = [ArraySegment[byte]]::new($buffer)
-        $receiveResult = $socket.ReceiveAsync($readSegment, $token).GetAwaiter().GetResult()
+        $remainingMs = [int][Math]::Ceiling(($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+        if ($remainingMs -le 0) {
+          throw "Timed out waiting for CDP response to '$Method'."
+        }
+
+        $receiveTimeout = [System.Threading.CancellationTokenSource]::new()
+        try {
+          $receiveTimeout.CancelAfter($remainingMs)
+          $receiveResult = $socket.ReceiveAsync($readSegment, $receiveTimeout.Token).GetAwaiter().GetResult()
+        }
+        catch [System.OperationCanceledException] {
+          throw "Timed out waiting for CDP response to '$Method'."
+        }
+        finally {
+          $receiveTimeout.Dispose()
+        }
 
         if ($receiveResult.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
           throw "CDP WebSocket closed before response for '$Method'."
