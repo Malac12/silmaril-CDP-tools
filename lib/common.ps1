@@ -235,7 +235,17 @@ function Start-SilmarilBrowserProcess {
   )
 
   $launchPath = Get-SilmarilBrowserLaunchPath
-  Start-Process -FilePath $launchPath -ArgumentList $ArgumentList | Out-Null
+  if (Test-SilmarilWindowsPlatform) {
+    Start-Process -FilePath $launchPath -ArgumentList $ArgumentList | Out-Null
+    return $launchPath
+  }
+
+  $appRoot = Get-SilmarilAppRoot
+  New-Item -ItemType Directory -Force -Path $appRoot | Out-Null
+  $stdoutLog = Join-Path -Path $appRoot -ChildPath "browser-stdout.log"
+  $stderrLog = Join-Path -Path $appRoot -ChildPath "browser-stderr.log"
+
+  Start-Process -FilePath $launchPath -ArgumentList $ArgumentList -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog | Out-Null
   return $launchPath
 }
 
