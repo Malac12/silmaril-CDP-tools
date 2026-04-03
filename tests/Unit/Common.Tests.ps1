@@ -53,6 +53,23 @@ Describe 'High-risk helpers' {
   }
 }
 
+Describe 'Get-SilmarilCdpWebSocketUrl' {
+  It 'normalizes localhost websocket urls to 127.0.0.1' {
+    $resolved = Get-SilmarilCdpWebSocketUrl -WebSocketDebuggerUrl 'ws://localhost:9222/devtools/page/abc'
+    $resolved | Should -Be 'ws://127.0.0.1:9222/devtools/page/abc'
+  }
+
+  It 'normalizes ipv6 loopback websocket urls to 127.0.0.1' {
+    $resolved = Get-SilmarilCdpWebSocketUrl -WebSocketDebuggerUrl 'ws://[::1]:9222/devtools/page/abc'
+    $resolved | Should -Be 'ws://127.0.0.1:9222/devtools/page/abc'
+  }
+
+  It 'leaves non-loopback websocket urls unchanged' {
+    $resolved = Get-SilmarilCdpWebSocketUrl -WebSocketDebuggerUrl 'ws://chrome.internal:9222/devtools/page/abc'
+    $resolved | Should -Be 'ws://chrome.internal:9222/devtools/page/abc'
+  }
+}
+
 Describe 'Platform helpers' {
   BeforeEach {
     $script:previousPlatform = $env:SILMARIL_PLATFORM

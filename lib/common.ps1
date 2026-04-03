@@ -47,12 +47,45 @@ function Test-SilmarilLoopbackHost {
     return $false
   }
 
-  $normalized = $ListenHost.Trim().ToLowerInvariant()
-  return (
-    $normalized -eq "127.0.0.1" -or
-    $normalized -eq "localhost" -or
-    $normalized -eq "::1"
+  $normalized = $ListenHost.Trim().TrimStart('[').TrimEnd(']').ToLowerInvariant()
+  if ($normalized -eq "localhost") {
+    return $true
+  }
+
+  $parsedAddress = $null
+  if ([System.Net.IPAddress]::TryParse($normalized, [ref]$parsedAddress)) {
+    return [System.Net.IPAddress]::IsLoopback($parsedAddress)
+  }
+
+  return $false
+}
+
+function Get-SilmarilCdpWebSocketUrl {
+  param(
+    [string]$WebSocketDebuggerUrl
   )
+
+  if ([string]::IsNullOrWhiteSpace($WebSocketDebuggerUrl)) {
+    return $WebSocketDebuggerUrl
+  }
+
+  try {
+    $uri = [System.Uri]::new($WebSocketDebuggerUrl)
+    if (-not ($uri.Scheme -eq "ws" -or $uri.Scheme -eq "wss")) {
+      return $WebSocketDebuggerUrl
+    }
+
+    if (-not (Test-SilmarilLoopbackHost -ListenHost $uri.Host)) {
+      return $WebSocketDebuggerUrl
+    }
+
+    $builder = [System.UriBuilder]::new($uri)
+    $builder.Host = "127.0.0.1"
+    return $builder.Uri.AbsoluteUri
+  }
+  catch {
+    return $WebSocketDebuggerUrl
+  }
 }
 
 function Resolve-SilmarilHighRiskAcknowledgement {
@@ -1414,6 +1447,8 @@ function Invoke-SilmarilCdpCommand {
     throw "Target does not include webSocketDebuggerUrl."
   }
 
+  $webSocketDebuggerUrl = Get-SilmarilCdpWebSocketUrl -WebSocketDebuggerUrl ([string]$Target.webSocketDebuggerUrl)
+
   $nodePath = $null
   if (Test-SilmarilMacOSPlatform) {
     $nodeCommand = Get-Command "node" -ErrorAction SilentlyContinue
@@ -1430,7 +1465,7 @@ function Invoke-SilmarilCdpCommand {
       params = $Params
     } | ConvertTo-Json -Compress -Depth 20
     $payloadBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payloadJson))
-    $socketBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$Target.webSocketDebuggerUrl))
+    $socketBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($webSocketDebuggerUrl))
     Write-SilmarilTrace -Message ("cdp-send-node method={0} id={1} targetId={2}" -f $Method, $requestId, [string]$Target.id)
 
     $nodeScript = @'
@@ -1560,7 +1595,7 @@ ws.addEventListener('close', () => {
   Write-SilmarilTrace -Message ("cdp-send method={0} id={1} targetId={2}" -f $Method, $requestId, [string]$Target.id)
 
   try {
-    $uri = [System.Uri]$Target.webSocketDebuggerUrl
+    $uri = [System.Uri]$webSocketDebuggerUrl
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
     $connectTimeout = [System.Threading.CancellationTokenSource]::new()
     try {
