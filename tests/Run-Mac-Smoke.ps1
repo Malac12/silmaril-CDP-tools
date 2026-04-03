@@ -46,6 +46,14 @@ function Invoke-SilmarilJson {
 
   $output = & bash $SilmarilCommand @CliArgs '--json' 2>&1
   $code = $LASTEXITCODE
+  if ([string]$env:SILMARIL_CDP_TRACE -eq '1') {
+    foreach ($entry in @($output)) {
+      $text = [string]$entry
+      if (-not [string]::IsNullOrWhiteSpace($text)) {
+        Write-Host ("TRACE_CMD " + $text)
+      }
+    }
+  }
   $line = ($output | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Last 1)
   if ([string]::IsNullOrWhiteSpace($line)) {
     throw 'No output from silmaril command.'
