@@ -141,6 +141,18 @@ Describe 'Platform helpers' {
   }
 }
 
+Describe 'ConvertTo-SilmarilProcessArgumentString' {
+  It 'quotes non-Windows process arguments that contain spaces' {
+    $rendered = ConvertTo-SilmarilProcessArgumentString -ArgumentList @(
+      '--user-data-dir=/Users/test/Library/Application Support/Silmaril',
+      '--remote-debugging-port=9222',
+      'about:blank'
+    )
+
+    $rendered | Should -Be '"--user-data-dir=/Users/test/Library/Application Support/Silmaril" --remote-debugging-port=9222 about:blank'
+  }
+}
+
 Describe 'Resolve-SilmarilPageTarget' {
   BeforeEach {
     $script:previousStateDir = $env:SILMARIL_STATE_DIR

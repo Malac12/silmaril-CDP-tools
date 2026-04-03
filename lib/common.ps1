@@ -212,6 +212,33 @@ function Get-SilmarilPowerShellPath {
   return "pwsh"
 }
 
+function ConvertTo-SilmarilProcessArgumentString {
+  param(
+    [string[]]$ArgumentList
+  )
+
+  if (-not $ArgumentList) {
+    return ""
+  }
+
+  $escapedArgs = @()
+  foreach ($arg in $ArgumentList) {
+    $text = [string]$arg
+    if ($text.Contains('"')) {
+      $text = $text.Replace('"', '\"')
+    }
+
+    if ([string]::IsNullOrWhiteSpace($text) -or $text -match '[\s"]') {
+      $escapedArgs += ('"' + $text + '"')
+    }
+    else {
+      $escapedArgs += $text
+    }
+  }
+
+  return ($escapedArgs -join ' ')
+}
+
 function Get-SilmarilBrowserLaunchPath {
   $browserPath = Get-SilmarilBrowserPath
   if (-not [string]::IsNullOrWhiteSpace([string]$browserPath)) {
@@ -244,8 +271,9 @@ function Start-SilmarilBrowserProcess {
   New-Item -ItemType Directory -Force -Path $appRoot | Out-Null
   $stdoutLog = Join-Path -Path $appRoot -ChildPath "browser-stdout.log"
   $stderrLog = Join-Path -Path $appRoot -ChildPath "browser-stderr.log"
+  $argumentString = ConvertTo-SilmarilProcessArgumentString -ArgumentList $ArgumentList
 
-  Start-Process -FilePath $launchPath -ArgumentList $ArgumentList -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog | Out-Null
+  Start-Process -FilePath $launchPath -ArgumentList $argumentString -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog | Out-Null
   return $launchPath
 }
 
