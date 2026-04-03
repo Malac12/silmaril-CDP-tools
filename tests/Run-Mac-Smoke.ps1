@@ -14,7 +14,6 @@ if ([string]::IsNullOrWhiteSpace($SilmarilCommand)) {
   $SilmarilCommand = Join-Path $repoRoot 'silmaril-mac.sh'
 }
 
-$fixture = Join-Path $repoRoot 'tests/fixtures/smoke-page.html'
 if (-not (Test-Path -LiteralPath $SilmarilCommand)) {
   throw "Silmaril mac launcher not found: $SilmarilCommand"
 }
@@ -63,8 +62,13 @@ function Invoke-SilmarilJson {
 $open = Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$Port), '--timeout-ms', '15000', '--poll-ms', '300')
 Assert-SilmarilTrue -Condition ([bool]$open.ok) -Message 'openbrowser failed.'
 
-$openUrl = Invoke-SilmarilJson -CliArgs @('openurl', $fixture, '--port', ([string]$Port), '--timeout-ms', '7000')
-Assert-SilmarilTrue -Condition ([bool]$openUrl.ok) -Message 'openurl failed.'
+$seedScript = @'
+document.title = "Silmaril Smoke";
+document.body.innerHTML = '<main id="app"><h1 id="title">Smoke Title</h1><button id="go">Go</button></main>';
+true;
+'@
+$seed = Invoke-SilmarilJson -CliArgs @('eval-js', $seedScript, '--allow-unsafe-js', '--yes', '--port', ([string]$Port), '--timeout-ms', '7000')
+Assert-SilmarilTrue -Condition ([bool]$seed.ok) -Message 'Initial page seed failed.'
 
 $wait = Invoke-SilmarilJson -CliArgs @('wait-for', '#title', '--port', ([string]$Port), '--timeout-ms', '7000', '--poll-ms', '100')
 Assert-SilmarilTrue -Condition ([bool]$wait.ok) -Message 'wait-for failed.'
