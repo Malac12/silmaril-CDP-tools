@@ -1277,6 +1277,7 @@ function Resolve-SilmarilPageTarget {
   }
 
   $activation = Invoke-SilmarilActivateTarget -Port $Port -TargetId ([string]$selected.id)
+  Write-SilmarilTrace -Message ("target port={0} pageCount={1} selection={2} source={3} id={4} url={5}" -f $Port, @($pages).Count, $selectionMode, $targetStateSource, [string]$selected.id, [string]$selected.url)
   Save-SilmarilTargetState -Port $Port -Target $selected -SelectionMode $selectionMode -Kind "ephemeral"
 
   return [pscustomobject]@{
@@ -1307,6 +1308,22 @@ function Get-SilmarilPreferredPageTarget {
 
   $resolved = Resolve-SilmarilPageTarget -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch
   return $resolved.Target
+}
+
+function Write-SilmarilTrace {
+  param(
+    [string]$Message
+  )
+
+  if (-not (Test-SilmarilTruthyValue -Value $env:SILMARIL_CDP_TRACE)) {
+    return
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Message)) {
+    return
+  }
+
+  Write-Host ("SILMARIL_TRACE " + $Message)
 }
 
 function Add-SilmarilTargetMetadata {
@@ -1376,6 +1393,7 @@ function Invoke-SilmarilCdpCommand {
     method = $Method
     params = $Params
   } | ConvertTo-Json -Compress -Depth 20
+  Write-SilmarilTrace -Message ("cdp-send method={0} id={1} targetId={2}" -f $Method, $requestId, [string]$Target.id)
 
   try {
     $uri = [System.Uri]$Target.webSocketDebuggerUrl
@@ -1439,6 +1457,9 @@ function Invoke-SilmarilCdpCommand {
 
       $rawMessage = [System.Text.Encoding]::UTF8.GetString($messageStream.ToArray())
       $messageStream.Dispose()
+      if (-not [string]::IsNullOrWhiteSpace($rawMessage)) {
+        Write-SilmarilTrace -Message ("cdp-recv method={0} id={1} message={2}" -f $Method, $requestId, $rawMessage)
+      }
 
       if ([string]::IsNullOrWhiteSpace($rawMessage)) {
         continue
