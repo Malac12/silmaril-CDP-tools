@@ -1590,7 +1590,14 @@ ws.addEventListener('close', (event) => {
 '@
 
     $nodeOutput = $nodeScript | & $nodePath - $socketBase64 $payloadBase64 ([string]($TimeoutSec * 1000)) 2>&1
-    $nodeLine = (@($nodeOutput | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) | Select-Object -Last 1)
+    $nodeLines = @($nodeOutput | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($nodeLines.Count -gt 1) {
+      for ($index = 0; $index -lt ($nodeLines.Count - 1); $index++) {
+        Write-SilmarilTrace -Message $nodeLines[$index]
+      }
+    }
+
+    $nodeLine = @($nodeLines | Select-Object -Last 1)
     if ([string]::IsNullOrWhiteSpace($nodeLine)) {
       throw "Node.js CDP bridge returned no output for '$Method'."
     }
