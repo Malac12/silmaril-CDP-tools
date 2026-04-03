@@ -31,6 +31,14 @@ $launchArgs = @(
   "about:blank"
 )
 
+if (Test-SilmarilTruthyValue -Value $env:SILMARIL_BROWSER_HEADLESS) {
+  $launchArgs = @(
+    "--headless=new"
+    "--disable-gpu"
+    "--hide-scrollbars"
+  ) + $launchArgs
+}
+
 $browserPath = Start-SilmarilBrowserProcess -ArgumentList $launchArgs
 
 $ready = $false

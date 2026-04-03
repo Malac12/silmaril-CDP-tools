@@ -54,6 +54,7 @@ jobs:
         shell: pwsh
         env:
           SILMARIL_BROWSER_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          SILMARIL_BROWSER_HEADLESS: '1'
         run: |
           & "${{ github.workspace }}/tests/Run-Mac-Smoke.ps1" -SilmarilCommand "${{ github.workspace }}/silmaril-mac.sh"
 
