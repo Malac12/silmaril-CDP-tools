@@ -1448,6 +1448,7 @@ function Invoke-SilmarilCdpCommand {
   }
 
   $webSocketDebuggerUrl = Get-SilmarilCdpWebSocketUrl -WebSocketDebuggerUrl ([string]$Target.webSocketDebuggerUrl)
+  Write-SilmarilTrace -Message ("cdp-websocket method={0} targetId={1} url={2}" -f $Method, [string]$Target.id, $webSocketDebuggerUrl)
 
   $nodePath = $null
   if (Test-SilmarilMacOSPlatform) {
@@ -1475,6 +1476,18 @@ const wsUrl = Buffer.from(wsB64, 'base64').toString('utf8');
 const payload = Buffer.from(payloadB64, 'base64').toString('utf8');
 const timeoutMs = Number.parseInt(timeoutMsRaw, 10);
 const WebSocketCtor = globalThis.WebSocket;
+const traceEnabled = (() => {
+  const value = String(process.env.SILMARIL_CDP_TRACE || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+})();
+
+const trace = (message) => {
+  if (!traceEnabled) {
+    return;
+  }
+
+  process.stdout.write(`SILMARIL_TRACE_NODE ${message}\n`);
+};
 
 if (!WebSocketCtor) {
   process.stdout.write(JSON.stringify({ error: 'Node.js WebSocket API is unavailable.' }));
@@ -1491,6 +1504,8 @@ try {
   process.stdout.write(JSON.stringify({ error: String(error && error.message ? error.message : error) }));
   process.exit(2);
 }
+
+trace(`connect url=${wsUrl} timeoutMs=${timeoutMs}`);
 
 const finish = (code, value) => {
   if (settled) {
@@ -1510,18 +1525,23 @@ const finish = (code, value) => {
 
 let settled = false;
 const ws = new WebSocketCtor(wsUrl);
+trace(`created readyState=${ws.readyState}`);
 const timer = setTimeout(() => {
+  trace(`timeout readyState=${ws.readyState}`);
   finish(3, { error: `Timed out waiting for CDP response to '${methodName}'.` });
 }, timeoutMs);
 
 ws.addEventListener('open', () => {
+  trace(`open readyState=${ws.readyState}`);
   ws.send(payload);
+  trace(`sent bytes=${Buffer.byteLength(payload)}`);
 });
 
 ws.addEventListener('message', (event) => {
   const raw = typeof event.data === 'string'
     ? event.data
     : Buffer.from(event.data).toString('utf8');
+  trace(`message type=${typeof event.data} bytes=${Buffer.byteLength(raw)}`);
 
   const packets = [];
   try {
@@ -1557,10 +1577,12 @@ ws.addEventListener('message', (event) => {
 
 ws.addEventListener('error', (event) => {
   const message = event && event.message ? event.message : 'Node WebSocket error.';
+  trace(`error message=${String(message)}`);
   finish(6, { error: String(message) });
 });
 
-ws.addEventListener('close', () => {
+ws.addEventListener('close', (event) => {
+  trace(`close code=${event && event.code ? event.code : 0} clean=${event && event.wasClean ? 'true' : 'false'} reason=${event && event.reason ? String(event.reason) : ''}`);
   if (!settled) {
     finish(7, { error: `CDP WebSocket closed before response for '${methodName}'.` });
   }
