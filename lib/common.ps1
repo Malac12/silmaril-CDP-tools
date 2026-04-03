@@ -1414,6 +1414,142 @@ function Invoke-SilmarilCdpCommand {
     throw "Target does not include webSocketDebuggerUrl."
   }
 
+  $nodePath = $null
+  if (Test-SilmarilMacOSPlatform) {
+    $nodeCommand = Get-Command "node" -ErrorAction SilentlyContinue
+    if ($nodeCommand) {
+      $nodePath = [string]$nodeCommand.Source
+    }
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($nodePath)) {
+    $requestId = Get-Random -Minimum 100000 -Maximum 999999
+    $payloadJson = @{
+      id     = $requestId
+      method = $Method
+      params = $Params
+    } | ConvertTo-Json -Compress -Depth 20
+    $payloadBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payloadJson))
+    $socketBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([string]$Target.webSocketDebuggerUrl))
+    Write-SilmarilTrace -Message ("cdp-send-node method={0} id={1} targetId={2}" -f $Method, $requestId, [string]$Target.id)
+
+    $nodeScript = @'
+const { Buffer } = require('node:buffer');
+const [wsB64, payloadB64, timeoutMsRaw] = process.argv.slice(2);
+const wsUrl = Buffer.from(wsB64, 'base64').toString('utf8');
+const payload = Buffer.from(payloadB64, 'base64').toString('utf8');
+const timeoutMs = Number.parseInt(timeoutMsRaw, 10);
+const WebSocketCtor = globalThis.WebSocket;
+
+if (!WebSocketCtor) {
+  process.stdout.write(JSON.stringify({ error: 'Node.js WebSocket API is unavailable.' }));
+  process.exit(2);
+}
+
+let requestId = null;
+let methodName = 'CDP';
+try {
+  const parsedPayload = JSON.parse(payload);
+  requestId = parsedPayload.id;
+  methodName = parsedPayload.method || methodName;
+} catch (error) {
+  process.stdout.write(JSON.stringify({ error: String(error && error.message ? error.message : error) }));
+  process.exit(2);
+}
+
+const finish = (code, value) => {
+  if (settled) {
+    return;
+  }
+
+  settled = true;
+  clearTimeout(timer);
+  try {
+    ws.close();
+  } catch (_) {
+  }
+
+  process.stdout.write(JSON.stringify(value));
+  process.exit(code);
+};
+
+let settled = false;
+const ws = new WebSocketCtor(wsUrl);
+const timer = setTimeout(() => {
+  finish(3, { error: `Timed out waiting for CDP response to '${methodName}'.` });
+}, timeoutMs);
+
+ws.addEventListener('open', () => {
+  ws.send(payload);
+});
+
+ws.addEventListener('message', (event) => {
+  const raw = typeof event.data === 'string'
+    ? event.data
+    : Buffer.from(event.data).toString('utf8');
+
+  const packets = [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      packets.push(...parsed);
+    } else {
+      packets.push(parsed);
+    }
+  } catch (_) {
+    return;
+  }
+
+  for (const packet of packets) {
+    if (!packet || packet.id !== requestId) {
+      continue;
+    }
+
+    if (packet.error) {
+      finish(4, { error: `CDP ${methodName} failed: ${packet.error.message}` });
+      return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(packet, 'result')) {
+      finish(5, { error: `CDP ${methodName} returned no result payload.` });
+      return;
+    }
+
+    finish(0, { result: packet.result });
+    return;
+  }
+});
+
+ws.addEventListener('error', (event) => {
+  const message = event && event.message ? event.message : 'Node WebSocket error.';
+  finish(6, { error: String(message) });
+});
+
+ws.addEventListener('close', () => {
+  if (!settled) {
+    finish(7, { error: `CDP WebSocket closed before response for '${methodName}'.` });
+  }
+});
+'@
+
+    $nodeOutput = $nodeScript | & $nodePath - $socketBase64 $payloadBase64 ([string]($TimeoutSec * 1000)) 2>&1
+    $nodeLine = (@($nodeOutput | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) | Select-Object -Last 1)
+    if ([string]::IsNullOrWhiteSpace($nodeLine)) {
+      throw "Node.js CDP bridge returned no output for '$Method'."
+    }
+
+    $nodePayload = $nodeLine | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0) {
+      throw ([string]$nodePayload.error)
+    }
+
+    if ($null -eq $nodePayload.result) {
+      throw "CDP $Method returned no result payload."
+    }
+
+    return $nodePayload.result
+  }
+
   $socket = [System.Net.WebSockets.ClientWebSocket]::new()
   $requestId = Get-Random -Minimum 100000 -Maximum 999999
   $payload = @{
