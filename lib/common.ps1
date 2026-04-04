@@ -1537,12 +1537,13 @@ try {
 const useBrowserSession = Boolean(browserWsUrl) && targetId.length > 0;
 const activeWsUrl = useBrowserSession ? browserWsUrl : wsUrl;
 const attachId = useBrowserSession ? requestId : null;
-const runIfWaitingId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 1) : null;
-const runtimeEnableId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 2) : null;
-const commandId = useBrowserSession ? (requestId + (runtimeEnableId !== null ? 3 : 1)) : requestId;
+const runIfWaitingInnerId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 1001) : null;
+const runtimeEnableInnerId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 1002) : null;
+const commandInnerId = useBrowserSession ? (requestId + (runtimeEnableInnerId !== null ? 1003 : 1001)) : requestId;
+let nextOuterId = requestId + 1;
 let sessionId = '';
-let runtimeEnabled = runtimeEnableId === null;
-let executionContextReady = runtimeEnableId === null;
+let runtimeEnabled = runtimeEnableInnerId === null;
+let executionContextReady = runtimeEnableInnerId === null;
 let commandSent = false;
 let waitingForDebugger = false;
 
@@ -1578,6 +1579,19 @@ const sendMessage = (message) => {
   trace(`sent bytes=${Buffer.byteLength(serialized)} id=${message.id || 0} method=${message.method || ''} session=${message.sessionId || ''}`);
 };
 
+const sendTargetMessage = (message) => {
+  const serializedTargetMessage = JSON.stringify(message);
+  sendMessage({
+    id: nextOuterId++,
+    method: 'Target.sendMessageToTarget',
+    params: {
+      sessionId,
+      message: serializedTargetMessage
+    }
+  });
+  trace(`sent-target bytes=${Buffer.byteLength(serializedTargetMessage)} id=${message.id || 0} method=${message.method || ''}`);
+};
+
 const sendCommand = () => {
   if (commandSent) {
     return;
@@ -1588,12 +1602,16 @@ const sendCommand = () => {
   }
 
   commandSent = true;
-  sendMessage({
-    id: commandId,
-    sessionId,
-    method: methodName,
-    params: parsedPayload.params || {}
-  });
+  if (useBrowserSession) {
+    sendTargetMessage({
+      id: commandInnerId,
+      method: methodName,
+      params: parsedPayload.params || {}
+    });
+    return;
+  }
+
+  sendMessage(parsedPayload);
 };
 
 ws.addEventListener('open', () => {
@@ -1603,14 +1621,13 @@ ws.addEventListener('open', () => {
       id: attachId,
       method: 'Target.attachToTarget',
       params: {
-        targetId,
-        flatten: true
+        targetId
       }
     });
     return;
   }
 
-  sendMessage(parsedPayload);
+  sendCommand();
 });
 
 ws.addEventListener('message', (event) => {
@@ -1649,6 +1666,85 @@ ws.addEventListener('message', (event) => {
         waitingForDebugger = Boolean(packet.params.waitingForDebugger);
         trace(`waiting-for-debugger=${waitingForDebugger ? 'true' : 'false'}`);
       }
+
+      continue;
+    }
+
+    if (useBrowserSession && packet.method === 'Target.receivedMessageFromTarget') {
+      const params = packet.params || {};
+      const targetSessionId = params.sessionId ? String(params.sessionId) : '';
+      if (!params.message) {
+        continue;
+      }
+
+      if (sessionId && targetSessionId && targetSessionId !== sessionId) {
+        continue;
+      }
+
+      const innerRaw = String(params.message);
+      trace(`target-message bytes=${Buffer.byteLength(innerRaw)}`);
+
+      let innerPacket = null;
+      try {
+        innerPacket = JSON.parse(innerRaw);
+      } catch (_) {
+        continue;
+      }
+
+      if (innerPacket.method) {
+        trace(`target-packet method=${innerPacket.method}`);
+      }
+
+      if (innerPacket.method === 'Runtime.executionContextCreated') {
+        executionContextReady = true;
+        trace('execution-context-created');
+        sendCommand();
+        continue;
+      }
+
+      if (runIfWaitingInnerId !== null && innerPacket.id === runIfWaitingInnerId) {
+        if (innerPacket.error) {
+          finish(4, { error: `CDP Runtime.runIfWaitingForDebugger failed: ${innerPacket.error.message}` });
+          return;
+        }
+
+        trace('runtime-resumed');
+        sendTargetMessage({
+          id: runtimeEnableInnerId,
+          method: 'Runtime.enable',
+          params: {}
+        });
+        continue;
+      }
+
+      if (runtimeEnableInnerId !== null && innerPacket.id === runtimeEnableInnerId) {
+        if (innerPacket.error) {
+          finish(4, { error: `CDP Runtime.enable failed: ${innerPacket.error.message}` });
+          return;
+        }
+
+        runtimeEnabled = true;
+        trace('runtime-enabled');
+        sendCommand();
+        continue;
+      }
+
+      if (innerPacket.id !== commandInnerId) {
+        continue;
+      }
+
+      if (innerPacket.error) {
+        finish(4, { error: `CDP ${methodName} failed: ${innerPacket.error.message}` });
+        return;
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(innerPacket, 'result')) {
+        finish(5, { error: `CDP ${methodName} returned no result payload.` });
+        return;
+      }
+
+      finish(0, { result: innerPacket.result });
+      return;
     }
 
     if (useBrowserSession && packet.id === attachId) {
@@ -1664,19 +1760,17 @@ ws.addEventListener('message', (event) => {
       }
 
       trace(`attached sessionId=${sessionId}`);
-      if (runtimeEnableId !== null) {
-        if (waitingForDebugger && runIfWaitingId !== null) {
-          sendMessage({
-            id: runIfWaitingId,
-            sessionId,
+      if (runtimeEnableInnerId !== null) {
+        if (waitingForDebugger && runIfWaitingInnerId !== null) {
+          sendTargetMessage({
+            id: runIfWaitingInnerId,
             method: 'Runtime.runIfWaitingForDebugger',
             params: {}
           });
         }
         else {
-          sendMessage({
-            id: runtimeEnableId,
-            sessionId,
+          sendTargetMessage({
+            id: runtimeEnableInnerId,
             method: 'Runtime.enable',
             params: {}
           });
@@ -1688,42 +1782,7 @@ ws.addEventListener('message', (event) => {
       continue;
     }
 
-    if (useBrowserSession && runIfWaitingId !== null && packet.id === runIfWaitingId) {
-      if (packet.error) {
-        finish(4, { error: `CDP Runtime.runIfWaitingForDebugger failed: ${packet.error.message}` });
-        return;
-      }
-
-      trace('runtime-resumed');
-      sendMessage({
-        id: runtimeEnableId,
-        sessionId,
-        method: 'Runtime.enable',
-        params: {}
-      });
-      continue;
-    }
-
-    if (useBrowserSession && runtimeEnableId !== null && packet.id === runtimeEnableId) {
-      if (packet.error) {
-        finish(4, { error: `CDP Runtime.enable failed: ${packet.error.message}` });
-        return;
-      }
-
-      runtimeEnabled = true;
-      trace('runtime-enabled');
-      sendCommand();
-      continue;
-    }
-
-    if (useBrowserSession && packet.method === 'Runtime.executionContextCreated') {
-      executionContextReady = true;
-      trace('execution-context-created');
-      sendCommand();
-      continue;
-    }
-
-    if (packet.id !== commandId) {
+    if (packet.id !== commandInnerId) {
       continue;
     }
 
