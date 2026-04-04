@@ -1537,8 +1537,12 @@ try {
 const useBrowserSession = Boolean(browserWsUrl) && targetId.length > 0;
 const activeWsUrl = useBrowserSession ? browserWsUrl : wsUrl;
 const attachId = useBrowserSession ? requestId : null;
-const commandId = useBrowserSession ? (requestId + 1) : requestId;
+const runtimeEnableId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 1) : null;
+const commandId = useBrowserSession ? (requestId + (runtimeEnableId !== null ? 2 : 1)) : requestId;
 let sessionId = '';
+let runtimeEnabled = runtimeEnableId === null;
+let executionContextReady = runtimeEnableId === null;
+let commandSent = false;
 
 trace(`connect transport=${useBrowserSession ? 'browser-session' : 'page-socket'} url=${activeWsUrl} timeoutMs=${timeoutMs}`);
 
@@ -1570,6 +1574,24 @@ const sendMessage = (message) => {
   const serialized = JSON.stringify(message);
   ws.send(serialized);
   trace(`sent bytes=${Buffer.byteLength(serialized)} id=${message.id || 0} method=${message.method || ''} session=${message.sessionId || ''}`);
+};
+
+const sendCommand = () => {
+  if (commandSent) {
+    return;
+  }
+
+  if (!runtimeEnabled || !executionContextReady) {
+    return;
+  }
+
+  commandSent = true;
+  sendMessage({
+    id: commandId,
+    sessionId,
+    method: methodName,
+    params: parsedPayload.params || {}
+  });
 };
 
 ws.addEventListener('open', () => {
@@ -1625,12 +1647,36 @@ ws.addEventListener('message', (event) => {
       }
 
       trace(`attached sessionId=${sessionId}`);
-      sendMessage({
-        id: commandId,
-        sessionId,
-        method: methodName,
-        params: parsedPayload.params || {}
-      });
+      if (runtimeEnableId !== null) {
+        sendMessage({
+          id: runtimeEnableId,
+          sessionId,
+          method: 'Runtime.enable',
+          params: {}
+        });
+      }
+      else {
+        sendCommand();
+      }
+      continue;
+    }
+
+    if (useBrowserSession && runtimeEnableId !== null && packet.id === runtimeEnableId) {
+      if (packet.error) {
+        finish(4, { error: `CDP Runtime.enable failed: ${packet.error.message}` });
+        return;
+      }
+
+      runtimeEnabled = true;
+      trace('runtime-enabled');
+      sendCommand();
+      continue;
+    }
+
+    if (useBrowserSession && packet.method === 'Runtime.executionContextCreated') {
+      executionContextReady = true;
+      trace('execution-context-created');
+      sendCommand();
       continue;
     }
 
