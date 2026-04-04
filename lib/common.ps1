@@ -1832,29 +1832,48 @@ ws.addEventListener('close', (event) => {
 });
 '@
 
-    $nodeOutput = $nodeScript | & $nodePath - $socketBase64 $payloadBase64 ([string]($TimeoutSec * 1000)) $browserSocketBase64 ([string]$Target.id) 2>&1
-    $nodeLines = @($nodeOutput | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($nodeLines.Count -gt 1) {
-      for ($index = 0; $index -lt ($nodeLines.Count - 1); $index++) {
-        Write-SilmarilTrace -Message $nodeLines[$index]
+    $invokeNodeBridge = {
+      param(
+        [string]$AttemptBrowserSocketBase64,
+        [string]$AttemptTransport
+      )
+
+      Write-SilmarilTrace -Message ("cdp-send-node-attempt method={0} id={1} targetId={2} transport={3}" -f $Method, $requestId, [string]$Target.id, $AttemptTransport)
+      $attemptOutput = $nodeScript | & $nodePath - $socketBase64 $payloadBase64 ([string]($TimeoutSec * 1000)) $AttemptBrowserSocketBase64 ([string]$Target.id) 2>&1
+      $attemptExitCode = $LASTEXITCODE
+      $attemptLines = @($attemptOutput | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+      if ($attemptLines.Count -gt 1) {
+        for ($index = 0; $index -lt ($attemptLines.Count - 1); $index++) {
+          Write-SilmarilTrace -Message $attemptLines[$index]
+        }
+      }
+
+      $attemptLine = @($attemptLines | Select-Object -Last 1)
+      if ([string]::IsNullOrWhiteSpace($attemptLine)) {
+        throw "Node.js CDP bridge returned no output for '$Method' over $AttemptTransport."
+      }
+
+      return [pscustomobject]@{
+        ExitCode = $attemptExitCode
+        Payload = ($attemptLine | ConvertFrom-Json)
       }
     }
 
-    $nodeLine = @($nodeLines | Select-Object -Last 1)
-    if ([string]::IsNullOrWhiteSpace($nodeLine)) {
-      throw "Node.js CDP bridge returned no output for '$Method'."
+    $nodeResult = & $invokeNodeBridge "" "page-socket"
+    if (($nodeResult.ExitCode -ne 0) -and (-not [string]::IsNullOrWhiteSpace($browserSocketBase64))) {
+      Write-SilmarilTrace -Message ("cdp-send-node-fallback method={0} id={1} targetId={2} from=page-socket to=browser-session message={3}" -f $Method, $requestId, [string]$Target.id, [string]$nodeResult.Payload.error)
+      $nodeResult = & $invokeNodeBridge $browserSocketBase64 "browser-session"
     }
 
-    $nodePayload = $nodeLine | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0) {
-      throw ([string]$nodePayload.error)
+    if ($nodeResult.ExitCode -ne 0) {
+      throw ([string]$nodeResult.Payload.error)
     }
 
-    if ($null -eq $nodePayload.result) {
+    if ($null -eq $nodeResult.Payload.result) {
       throw "CDP $Method returned no result payload."
     }
 
-    return $nodePayload.result
+    return $nodeResult.Payload.result
   }
 
   $socket = [System.Net.WebSockets.ClientWebSocket]::new()
