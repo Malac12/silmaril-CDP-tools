@@ -1546,6 +1546,7 @@ let runtimeEnabled = runtimeEnableInnerId === null;
 let executionContextReady = runtimeEnableInnerId === null;
 let commandSent = false;
 let waitingForDebugger = false;
+const outerMessageMap = new Map();
 
 trace(`connect transport=${useBrowserSession ? 'browser-session' : 'page-socket'} url=${activeWsUrl} timeoutMs=${timeoutMs}`);
 
@@ -1581,15 +1582,20 @@ const sendMessage = (message) => {
 
 const sendTargetMessage = (message) => {
   const serializedTargetMessage = JSON.stringify(message);
+  const outerId = nextOuterId++;
+  outerMessageMap.set(outerId, {
+    innerId: message.id || 0,
+    method: message.method || ''
+  });
   sendMessage({
-    id: nextOuterId++,
+    id: outerId,
     method: 'Target.sendMessageToTarget',
     params: {
       sessionId,
       message: serializedTargetMessage
     }
   });
-  trace(`sent-target bytes=${Buffer.byteLength(serializedTargetMessage)} id=${message.id || 0} method=${message.method || ''}`);
+  trace(`sent-target outerId=${outerId} bytes=${Buffer.byteLength(serializedTargetMessage)} id=${message.id || 0} method=${message.method || ''}`);
 };
 
 const sendCommand = () => {
@@ -1655,6 +1661,17 @@ ws.addEventListener('message', (event) => {
 
     if (packet.method) {
       trace(`packet method=${packet.method} session=${packet.sessionId || ''}`);
+    }
+
+    if (useBrowserSession && Object.prototype.hasOwnProperty.call(packet, 'id')) {
+      const trackedOuterPacket = outerMessageMap.get(packet.id);
+      if (trackedOuterPacket || packet.id === attachId || packet.error) {
+        const errorMessage = packet.error && packet.error.message
+          ? String(packet.error.message)
+          : '';
+        trace(`outer-packet id=${packet.id} trackedInnerId=${trackedOuterPacket ? trackedOuterPacket.innerId : 0} trackedMethod=${trackedOuterPacket ? trackedOuterPacket.method : ''} hasResult=${Object.prototype.hasOwnProperty.call(packet, 'result') ? 'true' : 'false'} error=${errorMessage}`);
+        trace(`outer-packet-raw ${JSON.stringify(packet)}`);
+      }
     }
 
     if (useBrowserSession && packet.method === 'Target.attachedToTarget') {
