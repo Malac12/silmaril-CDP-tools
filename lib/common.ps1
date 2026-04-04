@@ -1537,12 +1537,14 @@ try {
 const useBrowserSession = Boolean(browserWsUrl) && targetId.length > 0;
 const activeWsUrl = useBrowserSession ? browserWsUrl : wsUrl;
 const attachId = useBrowserSession ? requestId : null;
-const runtimeEnableId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 1) : null;
-const commandId = useBrowserSession ? (requestId + (runtimeEnableId !== null ? 2 : 1)) : requestId;
+const runIfWaitingId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 1) : null;
+const runtimeEnableId = useBrowserSession && methodName === 'Runtime.evaluate' ? (requestId + 2) : null;
+const commandId = useBrowserSession ? (requestId + (runtimeEnableId !== null ? 3 : 1)) : requestId;
 let sessionId = '';
 let runtimeEnabled = runtimeEnableId === null;
 let executionContextReady = runtimeEnableId === null;
 let commandSent = false;
+let waitingForDebugger = false;
 
 trace(`connect transport=${useBrowserSession ? 'browser-session' : 'page-socket'} url=${activeWsUrl} timeoutMs=${timeoutMs}`);
 
@@ -1634,6 +1636,21 @@ ws.addEventListener('message', (event) => {
       continue;
     }
 
+    if (packet.method) {
+      trace(`packet method=${packet.method} session=${packet.sessionId || ''}`);
+    }
+
+    if (useBrowserSession && packet.method === 'Target.attachedToTarget') {
+      if (packet.params && packet.params.sessionId && !sessionId) {
+        sessionId = String(packet.params.sessionId);
+      }
+
+      if (packet.params && Object.prototype.hasOwnProperty.call(packet.params, 'waitingForDebugger')) {
+        waitingForDebugger = Boolean(packet.params.waitingForDebugger);
+        trace(`waiting-for-debugger=${waitingForDebugger ? 'true' : 'false'}`);
+      }
+    }
+
     if (useBrowserSession && packet.id === attachId) {
       if (packet.error) {
         finish(4, { error: `CDP Target.attachToTarget failed: ${packet.error.message}` });
@@ -1648,16 +1665,42 @@ ws.addEventListener('message', (event) => {
 
       trace(`attached sessionId=${sessionId}`);
       if (runtimeEnableId !== null) {
-        sendMessage({
-          id: runtimeEnableId,
-          sessionId,
-          method: 'Runtime.enable',
-          params: {}
-        });
+        if (waitingForDebugger && runIfWaitingId !== null) {
+          sendMessage({
+            id: runIfWaitingId,
+            sessionId,
+            method: 'Runtime.runIfWaitingForDebugger',
+            params: {}
+          });
+        }
+        else {
+          sendMessage({
+            id: runtimeEnableId,
+            sessionId,
+            method: 'Runtime.enable',
+            params: {}
+          });
+        }
       }
       else {
         sendCommand();
       }
+      continue;
+    }
+
+    if (useBrowserSession && runIfWaitingId !== null && packet.id === runIfWaitingId) {
+      if (packet.error) {
+        finish(4, { error: `CDP Runtime.runIfWaitingForDebugger failed: ${packet.error.message}` });
+        return;
+      }
+
+      trace('runtime-resumed');
+      sendMessage({
+        id: runtimeEnableId,
+        sessionId,
+        method: 'Runtime.enable',
+        params: {}
+      });
       continue;
     }
 
