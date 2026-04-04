@@ -38,7 +38,7 @@ jobs:
           & "${{ github.workspace }}\tests\Run-Tests.ps1"
 
   macos-smoke:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     needs: lint-and-unit
     timeout-minutes: 10
 
