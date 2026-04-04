@@ -70,13 +70,24 @@ function Invoke-SilmarilJson {
 $open = Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$Port), '--timeout-ms', '15000', '--poll-ms', '300')
 Assert-SilmarilTrue -Condition ([bool]$open.ok) -Message 'openbrowser failed.'
 
-$seedScript = @'
-document.title = "Silmaril Smoke";
-document.body.innerHTML = '<main id="app"><h1 id="title">Smoke Title</h1><button id="go">Go</button></main>';
-true;
+$seedHtml = @'
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Silmaril Smoke</title>
+</head>
+<body>
+  <main id="app">
+    <h1 id="title">Smoke Title</h1>
+    <button id="go">Go</button>
+  </main>
+</body>
+</html>
 '@
-$seed = Invoke-SilmarilJson -CliArgs @('eval-js', $seedScript, '--allow-unsafe-js', '--yes', '--port', ([string]$Port), '--timeout-ms', '7000')
-Assert-SilmarilTrue -Condition ([bool]$seed.ok) -Message 'Initial page seed failed.'
+$seedUrl = 'data:text/html;charset=utf-8,' + [System.Uri]::EscapeDataString($seedHtml)
+$seed = Invoke-SilmarilJson -CliArgs @('openurl', $seedUrl, '--port', ([string]$Port), '--timeout-ms', '7000')
+Assert-SilmarilTrue -Condition ([bool]$seed.ok) -Message 'Initial page openurl failed.'
 
 $wait = Invoke-SilmarilJson -CliArgs @('wait-for', '#title', '--port', ([string]$Port), '--timeout-ms', '7000', '--poll-ms', '100')
 Assert-SilmarilTrue -Condition ([bool]$wait.ok) -Message 'wait-for failed.'
