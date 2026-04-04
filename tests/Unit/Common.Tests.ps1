@@ -70,6 +70,19 @@ Describe 'Get-SilmarilCdpWebSocketUrl' {
   }
 }
 
+Describe 'Get-SilmarilBrowserDebuggerWebSocketUrl' {
+  It 'uses the browser version endpoint websocket url' {
+    Mock Invoke-RestMethod {
+      [pscustomobject]@{
+        webSocketDebuggerUrl = 'ws://localhost:9222/devtools/browser/browser-id'
+      }
+    }
+
+    $resolved = Get-SilmarilBrowserDebuggerWebSocketUrl -Port 9222 -TimeoutSec 2
+    $resolved | Should -Be 'ws://127.0.0.1:9222/devtools/browser/browser-id'
+  }
+}
+
 Describe 'Platform helpers' {
   BeforeEach {
     $script:previousPlatform = $env:SILMARIL_PLATFORM

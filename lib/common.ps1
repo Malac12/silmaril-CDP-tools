@@ -773,6 +773,21 @@ function Test-SilmarilCdpReady {
   }
 }
 
+function Get-SilmarilBrowserDebuggerWebSocketUrl {
+  param(
+    [int]$Port = 9222,
+    [int]$TimeoutSec = 2
+  )
+
+  $versionEndpoint = "http://127.0.0.1:$Port/json/version"
+  $versionInfo = Invoke-RestMethod -Method Get -Uri $versionEndpoint -TimeoutSec $TimeoutSec
+  if (-not $versionInfo.webSocketDebuggerUrl) {
+    throw "Browser CDP version endpoint did not include webSocketDebuggerUrl."
+  }
+
+  return (Get-SilmarilCdpWebSocketUrl -WebSocketDebuggerUrl ([string]$versionInfo.webSocketDebuggerUrl))
+}
+
 function Invoke-SilmarilActivateTarget {
   param(
     [int]$Port = 9222,
@@ -1467,15 +1482,28 @@ function Invoke-SilmarilCdpCommand {
     } | ConvertTo-Json -Compress -Depth 20
     $payloadBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payloadJson))
     $socketBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($webSocketDebuggerUrl))
+    $browserSocketBase64 = ""
+    try {
+      $targetSocketUri = [System.Uri]$webSocketDebuggerUrl
+      $browserSocketUrl = Get-SilmarilBrowserDebuggerWebSocketUrl -Port ([int]$targetSocketUri.Port) -TimeoutSec ([Math]::Max([Math]::Min($TimeoutSec, 5), 1))
+      $browserSocketBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($browserSocketUrl))
+      Write-SilmarilTrace -Message ("cdp-browser-websocket method={0} targetId={1} url={2}" -f $Method, [string]$Target.id, $browserSocketUrl)
+    }
+    catch {
+      Write-SilmarilTrace -Message ("cdp-browser-websocket-unavailable method={0} targetId={1} message={2}" -f $Method, [string]$Target.id, [string]$_.Exception.Message)
+    }
+
     Write-SilmarilTrace -Message ("cdp-send-node method={0} id={1} targetId={2}" -f $Method, $requestId, [string]$Target.id)
 
     $nodeScript = @'
 const { Buffer } = require('node:buffer');
-const [wsB64, payloadB64, timeoutMsRaw] = process.argv.slice(2);
+const [wsB64, payloadB64, timeoutMsRaw, browserWsB64 = '', targetIdRaw = ''] = process.argv.slice(2);
 const wsUrl = Buffer.from(wsB64, 'base64').toString('utf8');
+const browserWsUrl = browserWsB64 ? Buffer.from(browserWsB64, 'base64').toString('utf8') : '';
 const payload = Buffer.from(payloadB64, 'base64').toString('utf8');
 const timeoutMs = Number.parseInt(timeoutMsRaw, 10);
 const WebSocketCtor = globalThis.WebSocket;
+const targetId = String(targetIdRaw || '').trim();
 const traceEnabled = (() => {
   const value = String(process.env.SILMARIL_CDP_TRACE || '').trim().toLowerCase();
   return value === '1' || value === 'true' || value === 'yes' || value === 'on';
@@ -1496,8 +1524,9 @@ if (!WebSocketCtor) {
 
 let requestId = null;
 let methodName = 'CDP';
+let parsedPayload = null;
 try {
-  const parsedPayload = JSON.parse(payload);
+  parsedPayload = JSON.parse(payload);
   requestId = parsedPayload.id;
   methodName = parsedPayload.method || methodName;
 } catch (error) {
@@ -1505,7 +1534,13 @@ try {
   process.exit(2);
 }
 
-trace(`connect url=${wsUrl} timeoutMs=${timeoutMs}`);
+const useBrowserSession = Boolean(browserWsUrl) && targetId.length > 0;
+const activeWsUrl = useBrowserSession ? browserWsUrl : wsUrl;
+const attachId = useBrowserSession ? requestId : null;
+const commandId = useBrowserSession ? (requestId + 1) : requestId;
+let sessionId = '';
+
+trace(`connect transport=${useBrowserSession ? 'browser-session' : 'page-socket'} url=${activeWsUrl} timeoutMs=${timeoutMs}`);
 
 const finish = (code, value) => {
   if (settled) {
@@ -1524,17 +1559,34 @@ const finish = (code, value) => {
 };
 
 let settled = false;
-const ws = new WebSocketCtor(wsUrl);
+const ws = new WebSocketCtor(activeWsUrl);
 trace(`created readyState=${ws.readyState}`);
 const timer = setTimeout(() => {
   trace(`timeout readyState=${ws.readyState}`);
   finish(3, { error: `Timed out waiting for CDP response to '${methodName}'.` });
 }, timeoutMs);
 
+const sendMessage = (message) => {
+  const serialized = JSON.stringify(message);
+  ws.send(serialized);
+  trace(`sent bytes=${Buffer.byteLength(serialized)} id=${message.id || 0} method=${message.method || ''} session=${message.sessionId || ''}`);
+};
+
 ws.addEventListener('open', () => {
   trace(`open readyState=${ws.readyState}`);
-  ws.send(payload);
-  trace(`sent bytes=${Buffer.byteLength(payload)}`);
+  if (useBrowserSession) {
+    sendMessage({
+      id: attachId,
+      method: 'Target.attachToTarget',
+      params: {
+        targetId,
+        flatten: true
+      }
+    });
+    return;
+  }
+
+  sendMessage(parsedPayload);
 });
 
 ws.addEventListener('message', (event) => {
@@ -1556,7 +1608,33 @@ ws.addEventListener('message', (event) => {
   }
 
   for (const packet of packets) {
-    if (!packet || packet.id !== requestId) {
+    if (!packet) {
+      continue;
+    }
+
+    if (useBrowserSession && packet.id === attachId) {
+      if (packet.error) {
+        finish(4, { error: `CDP Target.attachToTarget failed: ${packet.error.message}` });
+        return;
+      }
+
+      sessionId = packet.result && packet.result.sessionId ? String(packet.result.sessionId) : '';
+      if (!sessionId) {
+        finish(5, { error: 'CDP Target.attachToTarget returned no sessionId.' });
+        return;
+      }
+
+      trace(`attached sessionId=${sessionId}`);
+      sendMessage({
+        id: commandId,
+        sessionId,
+        method: methodName,
+        params: parsedPayload.params || {}
+      });
+      continue;
+    }
+
+    if (packet.id !== commandId) {
       continue;
     }
 
@@ -1589,7 +1667,7 @@ ws.addEventListener('close', (event) => {
 });
 '@
 
-    $nodeOutput = $nodeScript | & $nodePath - $socketBase64 $payloadBase64 ([string]($TimeoutSec * 1000)) 2>&1
+    $nodeOutput = $nodeScript | & $nodePath - $socketBase64 $payloadBase64 ([string]($TimeoutSec * 1000)) $browserSocketBase64 ([string]$Target.id) 2>&1
     $nodeLines = @($nodeOutput | ForEach-Object { [string]$_ } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($nodeLines.Count -gt 1) {
       for ($index = 0; $index -lt ($nodeLines.Count - 1); $index++) {
