@@ -60,6 +60,32 @@ jobs:
         run: |
           & "${{ github.workspace }}/tests/Run-Mac-Smoke.ps1" -SilmarilCommand "${{ github.workspace }}/silmaril-mac.sh"
 
+  macos-installer-smoke:
+    runs-on: macos-15-intel
+    needs: lint-and-unit
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Chrome
+        id: setup-chrome-installer
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: 146
+
+      - name: macOS Installer Smoke
+        shell: pwsh
+        env:
+          SILMARIL_BROWSER_PATH: ${{ steps.setup-chrome-installer.outputs.chrome-path }}
+          SILMARIL_CDP_TRACE: '1'
+        run: |
+          $installerPath = Join-Path $env:RUNNER_TEMP 'install-skill.sh'
+          $installerUrl = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install-skill.sh"
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          & "${{ github.workspace }}/tests/Run-Mac-Install-Smoke.ps1" -InstallerScript $installerPath -RepoUrlOverride "${{ github.workspace }}"
+
   integration-smoke:
     if: github.event_name == 'workflow_dispatch' && inputs.run_integration == true
     runs-on: windows-latest
