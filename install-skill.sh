@@ -14,7 +14,7 @@ DRY_RUN=0
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 write_step() {
-  printf '==> %s\n' "$1"
+  printf '==> %s\n' "$1" >&2
 }
 
 die() {
