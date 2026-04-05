@@ -2130,6 +2130,162 @@ function Get-SilmarilEvalValue {
   throw "Runtime.evaluate result does not contain 'value'."
 }
 
+function Invoke-SilmarilVisualCursorCue {
+  param(
+    [psobject]$Target,
+    [string]$Selector,
+    [ValidateSet("click", "type")]
+    [string]$Mode,
+    [int]$TimeoutSec = 20
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Selector)) {
+    throw "Visual cursor selector cannot be empty."
+  }
+
+  $selectorJs = $Selector | ConvertTo-Json -Compress
+  $modeJs = $Mode | ConvertTo-Json -Compress
+
+  $expression = @"
+(async function(){
+  var sel = $selectorJs;
+  var mode = $modeJs;
+  var rootId = '__silmaril_visual_cursor_root__';
+  var styleId = '__silmaril_visual_cursor_style__';
+
+  var wait = function(ms){
+    return new Promise(function(resolve){ setTimeout(resolve, ms); });
+  };
+
+  var nextFrame = function(){
+    return new Promise(function(resolve){ requestAnimationFrame(function(){ resolve(); }); });
+  };
+
+  var clamp = function(value, min, max){
+    return Math.min(max, Math.max(min, value));
+  };
+
+  var removeNode = function(id){
+    var node = document.getElementById(id);
+    if (node && node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+  };
+
+  removeNode(rootId);
+  removeNode(styleId);
+
+  var overlayRoot = null;
+  var overlayStyle = null;
+  try {
+    var el = document.querySelector(sel);
+    if (!el) {
+      return { ok: false, reason: 'not_found', selector: sel };
+    }
+
+    try {
+      if (typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+      }
+    } catch (_) {
+      try { el.scrollIntoView(); } catch (_) {}
+    }
+
+    await nextFrame();
+    await wait(40);
+
+    var rect = el.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return { ok: false, reason: 'not_visible', selector: sel };
+    }
+
+    var host = document.documentElement || document.body;
+    if (!host) {
+      return { ok: false, reason: 'no_document_root', selector: sel };
+    }
+
+    overlayStyle = document.createElement('style');
+    overlayStyle.id = styleId;
+    overlayStyle.textContent = [
+      '.silmaril-visual-root{position:fixed;inset:0;pointer-events:none;z-index:2147483647;overflow:hidden;}',
+      '.silmaril-visual-cursor{position:fixed;left:0;top:0;width:22px;height:30px;transform:translate(-5px,-4px) rotate(-14deg);transition:left 180ms cubic-bezier(0.22,0.8,0.2,1),top 180ms cubic-bezier(0.22,0.8,0.2,1),transform 120ms ease;}',
+      '.silmaril-visual-cursor::before{content:"";position:absolute;left:0;top:0;width:0;height:0;border-top:20px solid #111;border-right:12px solid transparent;border-bottom:8px solid transparent;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.28));}',
+      '.silmaril-visual-cursor::after{content:"";position:absolute;left:4px;top:4px;width:0;height:0;border-top:12px solid #fff;border-right:7px solid transparent;border-bottom:5px solid transparent;}',
+      '.silmaril-visual-cursor--pressed{transform:translate(-4px,-2px) rotate(-14deg) scale(0.92);}',
+      '.silmaril-visual-pulse{position:fixed;left:0;top:0;width:16px;height:16px;border-radius:999px;transform:translate(-50%,-50%) scale(0.35);opacity:0;transition:transform 170ms ease,opacity 170ms ease;background:rgba(59,130,246,0.18);border:2px solid rgba(37,99,235,0.85);box-shadow:0 0 0 1px rgba(255,255,255,0.6);}',
+      '.silmaril-visual-pulse--type{background:rgba(34,197,94,0.18);border-color:rgba(22,163,74,0.85);}',
+      '.silmaril-visual-pulse--active{opacity:1;transform:translate(-50%,-50%) scale(2.8);}'
+    ].join('');
+
+    (document.head || host).appendChild(overlayStyle);
+
+    overlayRoot = document.createElement('div');
+    overlayRoot.id = rootId;
+    overlayRoot.className = 'silmaril-visual-root';
+
+    var pulse = document.createElement('div');
+    pulse.className = 'silmaril-visual-pulse' + (mode === 'type' ? ' silmaril-visual-pulse--type' : '');
+
+    var cursor = document.createElement('div');
+    cursor.className = 'silmaril-visual-cursor';
+
+    overlayRoot.appendChild(pulse);
+    overlayRoot.appendChild(cursor);
+    host.appendChild(overlayRoot);
+
+    var viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0, 40);
+    var viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0, 40);
+    var targetX = clamp(rect.left + (rect.width / 2), 14, Math.max(14, viewportWidth - 14));
+    var targetY = clamp(rect.top + (rect.height / 2), 14, Math.max(14, viewportHeight - 14));
+    var startX = clamp(targetX - 84, 14, Math.max(14, viewportWidth - 14));
+    var startY = clamp(targetY - 56, 14, Math.max(14, viewportHeight - 14));
+
+    cursor.style.left = startX + 'px';
+    cursor.style.top = startY + 'px';
+    pulse.style.left = targetX + 'px';
+    pulse.style.top = targetY + 'px';
+
+    await nextFrame();
+    cursor.style.left = targetX + 'px';
+    cursor.style.top = targetY + 'px';
+
+    await wait(190);
+
+    cursor.classList.add('silmaril-visual-cursor--pressed');
+    pulse.classList.add('silmaril-visual-pulse--active');
+
+    await wait(mode === 'type' ? 220 : 170);
+
+    return {
+      ok: true,
+      selector: sel,
+      mode: mode,
+      x: Math.round(targetX),
+      y: Math.round(targetY)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'visual_error',
+      selector: sel,
+      mode: mode,
+      message: String((error && error.message) ? error.message : error)
+    };
+  } finally {
+    if (overlayRoot && overlayRoot.parentNode) {
+      overlayRoot.parentNode.removeChild(overlayRoot);
+    }
+    if (overlayStyle && overlayStyle.parentNode) {
+      overlayStyle.parentNode.removeChild(overlayStyle);
+    }
+  }
+})()
+"@
+
+  $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $TimeoutSec
+  return Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "visual-cursor"
+}
+
 function Invoke-SilmarilSelectorWait {
   param(
     [psobject]$Target,

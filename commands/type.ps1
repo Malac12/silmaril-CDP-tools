@@ -15,26 +15,47 @@ $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
 $timeoutMs = [int]$common.TimeoutMs
 
-$usage = "type requires: ""selector"" ""text"" --yes, or ""selector"" --text-file ""path"" --yes"
+$usage = "type requires: ""selector"" ""text"" --yes [--visual-cursor], or ""selector"" --text-file ""path"" --yes [--visual-cursor]"
 if ($RemainingArgs.Count -lt 3) {
   throw $usage
 }
 
 $selectorInput = [string]$RemainingArgs[0]
-$confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
-
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
 $selector = Normalize-SilmarilSelector -Selector $selectorInput
 
-if ($confirmation -ne "--yes") {
+$confirmType = $false
+$visualCursor = $false
+$lastPayloadIndex = $RemainingArgs.Count - 1
+
+while ($lastPayloadIndex -ge 1) {
+  $tailArg = [string]$RemainingArgs[$lastPayloadIndex]
+  $tailLower = $tailArg.ToLowerInvariant()
+
+  if ($tailLower -eq "--yes") {
+    $confirmType = $true
+    $lastPayloadIndex -= 1
+    continue
+  }
+
+  if ($tailLower -eq "--visual-cursor") {
+    $visualCursor = $true
+    $lastPayloadIndex -= 1
+    continue
+  }
+
+  break
+}
+
+if (-not $confirmType) {
   throw "type requires explicit confirmation flag --yes"
 }
 
 $payloadArgs = @()
-if ($RemainingArgs.Count -gt 2) {
-  $payloadArgs = $RemainingArgs[1..($RemainingArgs.Count - 2)]
+if ($lastPayloadIndex -ge 1) {
+  $payloadArgs = $RemainingArgs[1..$lastPayloadIndex]
 }
 
 $maxPayloadBytes = 1048576
@@ -94,6 +115,14 @@ $expression = "(function(){ var sel = $selectorJs; var txt = $textJs; var el = d
 $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
+if ($visualCursor) {
+  try {
+    Invoke-SilmarilVisualCursorCue -Target $target -Selector $selector -Mode "type" -TimeoutSec $timeoutSec | Out-Null
+  }
+  catch {
+    Write-SilmarilTrace -Message ("Visual cursor cue failed for type selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)
+  }
+}
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "type"
 if ($null -eq $value) {
@@ -117,6 +146,7 @@ $data = [ordered]@{
   normalizedSelector = $selector
   inputMode   = $inputMode
   bytes       = $payloadBytes
+  visualCursor = $visualCursor
   port        = $port
   targetId    = $targetId
   urlMatch    = $urlMatch

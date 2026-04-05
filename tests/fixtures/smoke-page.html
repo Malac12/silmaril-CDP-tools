@@ -4,7 +4,10 @@
 <body>
   <main id="app">
     <h1 id="title">Smoke Title</h1>
-    <button id="go">Go</button>
+    <label for="name">Name</label>
+    <input id="name" type="text" value="">
+    <p id="status">Idle</p>
+    <button id="go" onclick="document.getElementById('status').textContent='Clicked';">Go</button>
   </main>
 </body>
 </html>

@@ -413,6 +413,34 @@ Describe 'Invoke-SilmarilSelectorWait' {
   }
 }
 
+Describe 'Invoke-SilmarilVisualCursorCue' {
+  It 'serializes selector and mode into the runtime expression' {
+    $script:capturedVisualCursorExpression = $null
+
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      param($Target, $Expression, $TimeoutSec)
+      $script:capturedVisualCursorExpression = $Expression
+      return [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+            selector = '#go'
+            mode = 'click'
+            x = 48
+            y = 72
+          }
+        }
+      }
+    }
+
+    $result = Invoke-SilmarilVisualCursorCue -Target ([pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }) -Selector '#go' -Mode 'click' -TimeoutSec 9
+
+    $result.ok | Should -BeTrue
+    $script:capturedVisualCursorExpression.Contains('var sel = "#go";') | Should -BeTrue
+    $script:capturedVisualCursorExpression.Contains('var mode = "click";') | Should -BeTrue
+  }
+}
+
 Describe 'Get-SilmarilErrorContract' {
   It 'returns standardized keys' {
     $err = Get-SilmarilErrorContract -Command 'wait-for' -Message 'Timed out waiting for selector: #x'

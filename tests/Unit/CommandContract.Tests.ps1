@@ -147,3 +147,94 @@ Describe 'list-urls output contract' {
     @($result) | Should -Be @('No URLs found')
   }
 }
+
+Describe 'visual cursor command wiring' {
+  It 'passes visualCursor metadata through click when enabled' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-1'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilVisualCursorCue { [pscustomobject]@{ ok = $true } }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/click.ps1') -RemainingArgs @('#go', '--yes', '--visual-cursor')
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      Assert-MockCalled Invoke-SilmarilVisualCursorCue -Times 1 -Exactly
+      $payload.visualCursor | Should -BeTrue
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
+
+  It 'preserves inline type payload when visual-cursor is a trailing flag' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-2'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-2'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilVisualCursorCue { [pscustomobject]@{ ok = $true } }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/type.ps1') -RemainingArgs @('#name', 'hello', 'visual', 'mode', '--yes', '--visual-cursor')
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      Assert-MockCalled Invoke-SilmarilVisualCursorCue -Times 1 -Exactly
+      $payload.bytes | Should -Be ([System.Text.Encoding]::UTF8.GetByteCount('hello visual mode'))
+      $payload.visualCursor | Should -BeTrue
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
+}

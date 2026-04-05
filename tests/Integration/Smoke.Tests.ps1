@@ -57,4 +57,31 @@ Describe 'Silmaril Integration Smoke' -Tag 'Integration' {
     $text.ok | Should -BeTrue
     $text.text | Should -Be 'Smoke Title'
   }
+
+  It 'supports click and type with visual cursor mode' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $port = Get-FreeLoopbackPort
+
+    (Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$port), '--timeout-ms', '12000', '--poll-ms', '300')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('openurl', $script:fixture, '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('wait-for', '#go', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+
+    $click = Invoke-SilmarilJson -CliArgs @('click', '#go', '--yes', '--visual-cursor', '--port', ([string]$port), '--timeout-ms', '5000')
+    $click.ok | Should -BeTrue
+    $click.visualCursor | Should -BeTrue
+
+    $status = Invoke-SilmarilJson -CliArgs @('get-text', '#status', '--port', ([string]$port), '--timeout-ms', '5000')
+    $status.text | Should -Be 'Clicked'
+
+    $type = Invoke-SilmarilJson -CliArgs @('type', '#name', 'Smoke Input', '--yes', '--visual-cursor', '--port', ([string]$port), '--timeout-ms', '5000')
+    $type.ok | Should -BeTrue
+    $type.visualCursor | Should -BeTrue
+
+    $query = Invoke-SilmarilJson -CliArgs @('query', '#name', '--fields', 'value', '--limit', '1', '--port', ([string]$port), '--timeout-ms', '5000')
+    $query.rows[0].value | Should -Be 'Smoke Input'
+  }
 }

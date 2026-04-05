@@ -15,19 +15,40 @@ $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
 $timeoutMs = [int]$common.TimeoutMs
 
-if ($RemainingArgs.Count -ne 2) {
-  throw "click requires exactly two arguments: ""selector"" --yes. Supported flags: --port, --target-id, --url-match, --timeout-ms"
+if ($RemainingArgs.Count -lt 2) {
+  throw "click requires: ""selector"" --yes [--visual-cursor]. Supported flags: --port, --target-id, --url-match, --timeout-ms"
 }
 
 $selectorInput = [string]$RemainingArgs[0]
-$confirmation = [string]$RemainingArgs[1]
 
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
 $selector = Normalize-SilmarilSelector -Selector $selectorInput
 
-if ($confirmation -ne "--yes") {
+$confirmClick = $false
+$visualCursor = $false
+
+for ($i = 1; $i -lt $RemainingArgs.Count; $i++) {
+  $arg = [string]$RemainingArgs[$i]
+  $argLower = $arg.ToLowerInvariant()
+
+  switch ($argLower) {
+    "--yes" {
+      $confirmClick = $true
+      continue
+    }
+    "--visual-cursor" {
+      $visualCursor = $true
+      continue
+    }
+    default {
+      throw "Unexpected argument '$arg'. click requires: ""selector"" --yes [--visual-cursor]"
+    }
+  }
+}
+
+if (-not $confirmClick) {
   throw "click requires explicit confirmation flag --yes"
 }
 
@@ -37,6 +58,14 @@ $expression = "(function(){ var sel = $selectorJs; var el = document.querySelect
 $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
+if ($visualCursor) {
+  try {
+    Invoke-SilmarilVisualCursorCue -Target $target -Selector $selector -Mode "click" -TimeoutSec $timeoutSec | Out-Null
+  }
+  catch {
+    Write-SilmarilTrace -Message ("Visual cursor cue failed for click selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)
+  }
+}
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "click"
 if ($null -eq $value) {
@@ -55,6 +84,7 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
 Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data @{
   selector = $selectorInput
   normalizedSelector = $selector
+  visualCursor = $visualCursor
   port     = $port
   targetId = $targetId
   urlMatch = $urlMatch
