@@ -49,15 +49,15 @@ Without this step, HTTPS interception usually fails.
 ## 4) Start proxy manually
 
 ```powershell
-$env:SILMARIL_MITM_RULES = "D:\silmairl cdp\tools\mitm\rules.json"
-mitmdump -s "D:\silmairl cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080
+$env:SILMARIL_MITM_RULES = "D:\silmaril cdp\tools\mitm\rules.json"
+mitmdump -s "D:\silmaril cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080
 ```
 
 If your machine fails upstream certificate-chain verification and requests return `502 Bad Gateway`, use:
 
 ```powershell
-$env:SILMARIL_MITM_RULES = "D:\silmairl cdp\tools\mitm\rules.json"
-mitmdump -s "D:\silmairl cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080 --set ssl_insecure=true
+$env:SILMARIL_MITM_RULES = "D:\silmaril cdp\tools\mitm\rules.json"
+mitmdump -s "D:\silmaril cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080 --set ssl_insecure=true
 ```
 
 `ssl_insecure=true` is useful for local development when the machine cannot validate some upstream site certificates cleanly.
@@ -99,7 +99,7 @@ silmaril.cmd openurl-proxy "https://en.wikipedia.org/wiki/Pizza" --allow-mitm
 Switch a rule between original and saved files:
 
 ```powershell
-silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use saved --allow-mitm --yes
+silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmaril cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmaril cdp\tools\mitm\overrides\pizza.override.html" --use saved --allow-mitm --yes
 ```
 
 ## Notes

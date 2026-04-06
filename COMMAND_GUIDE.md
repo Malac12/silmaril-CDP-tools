@@ -6,7 +6,7 @@ This guide covers practical usage patterns for `silmaril.cmd` commands.
 
 ```powershell
 silmaril.cmd openbrowser
-silmaril.cmd openUrl "D:\silmairl cdp\test-page.html"
+silmaril.cmd openUrl "D:\silmaril cdp\test-page.html"
 ```
 
 If URL input is a local file path, `openUrl` will convert it to a `file:///...` URL.
@@ -51,13 +51,17 @@ Practical split:
 
 ```powershell
 silmaril.cmd click "#submit-btn" --yes
+silmaril.cmd click "#submit-btn" --yes --visual-cursor
 silmaril.cmd type "#search-input" "hello world" --yes
+silmaril.cmd type "#search-input" "hello world" --yes --visual-cursor
 silmaril.cmd set-text "#status" "Done" --yes
 silmaril.cmd set-html "#box" "<h3>Updated</h3>" --yes
 ```
 
 - Mutations and actions require `--yes`.
 - `type` works for `input`, `textarea`, and `contenteditable`.
+- `--visual-cursor` adds an in-page cursor animation before `click` and `type`.
+- The visual cursor is a temporary page overlay, not the real OS mouse pointer.
 
 ## 4. Wait Commands
 
@@ -107,20 +111,65 @@ silmaril.cmd get-text "#result .title"
 
 Use one clear synchronization signal after each action. Avoid fixed sleeps when possible.
 
-## 8. Long JS Without `>>`
+## 8. SPA Escalation Pattern (When Clicks Do Nothing)
+
+Modern React/Vue single-page apps often render clickable rows or buttons that are not normal links.
+In these apps, a successful DOM click does not guarantee route transition.
+
+Practical rule:
+
+1. Try normal UI interaction first
+
+- Validate selector with `exists`, `get-text`, or `query`.
+- Click once.
+- Check whether URL or visible app state changed.
+
+2. If two validated clicks still do not change state, stop poking the DOM
+
+- Do not keep retrying nearby selectors indefinitely.
+- Escalate to route discovery and API discovery.
+
+3. Discover the route shape
+
+- Use `get-source` to find current JS bundles.
+- Search bundles locally for route definitions such as:
+  - `path:"/courses/:courseId/learn/:taskId"`
+  - `path:"/classrooms/:classroomId/lessons/:lessonId"`
+- When a stable route is discovered, prefer opening it directly with `openUrl`.
+
+4. Discover the page's real data source
+
+- In a live page, inspect recent fetched resources:
+
+```powershell
+silmaril.cmd eval-js "JSON.stringify(performance.getEntriesByType('resource').map(r => r.name).filter(n => n.includes('/api/')).slice(-40))" --allow-unsafe-js --yes --json
+```
+
+- Prefer endpoints the page already called over guessing hidden APIs.
+- If the visible page shows lessons/tasks but the primary course API does not, look for a secondary endpoint such as `/tasks`, `/progress`, `/lessons`, or `/outline`.
+
+5. Open the exact route instead of re-clicking inert UI
+
+- Example pattern:
+  - discover task IDs from the page-called API
+  - open `/courses/<courseId>/learn/<taskId>`
+
+This is usually faster and more reliable than reverse-engineering React click handlers.
+
+## 9. Long JS Without `>>`
 
 If PowerShell shows `>>`, your pasted JS likely opened an unfinished quote.
 Use file mode instead of pasting long code inline:
 
 ```powershell
-silmaril.cmd eval-js --file "D:\silmairl cdp\script.js" --allow-unsafe-js --yes
+silmaril.cmd eval-js --file "D:\silmaril cdp\script.js" --allow-unsafe-js --yes
 ```
 
 This avoids multiline quoting issues in terminal input.
 
 
 
-## 9. Prefer File-Based JS for Reliability
+## 10. Prefer File-Based JS for Reliability
 
 For this toolkit, putting JS in a file is usually the most reliable approach.
 
@@ -143,7 +192,7 @@ This avoids quoting/operator issues like && in inline shell strings.
 
 
 
-## 10. DOM-First Targeting (Especially for Complex Webpages)
+## 11. DOM-First Targeting (Especially for Complex Webpages)
 
 Yes. For this toolkit and sites like Product Hunt: prefer live DOM over raw source for element targeting.
 
@@ -177,7 +226,7 @@ So the practical rule is:
 
 
 
-## 11. JSON Output Mode
+## 12. JSON Output Mode
 
 Use `--json` as the final argument to get structured output across commands.
 
@@ -202,7 +251,7 @@ Why this helps:
 - Avoids fragile text parsing in shell pipelines and automation scripts.
 - Makes `list-urls`, `get-dom`, `eval-js`, and wait/action commands easier to consume programmatically.
 
-## 12. File Input Modes for Mutations
+## 13. File Input Modes for Mutations
 
 For complex payloads, prefer file-based input over long inline strings.
 
@@ -235,7 +284,7 @@ Use `--json` at the end when automating:
 silmaril.cmd set-text "#status" --text-file "C:\Users\hangx\status.txt" --yes --json
 ```
 
-## 13. eval-js --file Reliability
+## 14. eval-js --file Reliability
 
 `eval-js --file` remains the preferred mode for complex JavaScript.
 
@@ -271,7 +320,36 @@ Practical rule:
 - Add `--isolate-scope` when the script declares top-level helpers and may be rerun on the same page.
 - If it still hangs in your page context, fallback to a compact inline expression.
 
-## 14. Local MITM Overrides
+## 15. Multi-Target / New-Tab Discipline
+
+`openUrl` may create a new CDP page target.
+When that happens, follow up immediately and verify which target is active before continuing.
+
+Practical rule:
+
+1. After `openUrl`, check `get-currentUrl --json`.
+2. If a new tab was created, either:
+   - keep working on the active target if it is correct, or
+   - pin later commands with `--target-id`.
+
+Do not assume subsequent commands still refer to the original page.
+
+## 16. Recommended Recovery Ladder
+
+When automation stalls, use this order:
+
+1. Validate selector
+2. Click once
+3. Check URL/state
+4. Click one alternative only if it is genuinely different
+5. Inspect route patterns
+6. Inspect recent `/api/` resource requests
+7. Query the discovered page-backed API
+8. Open the exact route directly
+
+This keeps troubleshooting bounded and avoids wasting time on inert UI elements.
+
+## 17. Local MITM Overrides
 
 To make page changes persist across refresh, use a local MITM proxy that serves local files for matched URLs.
 
@@ -294,15 +372,15 @@ Quick start:
 4. Run:
 
 ```powershell
-$env:SILMARIL_MITM_RULES = "D:\silmairl cdp\tools\mitm\rules.json"
-mitmdump -s "D:\silmairl cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080
+$env:SILMARIL_MITM_RULES = "D:\silmaril cdp\tools\mitm\rules.json"
+mitmdump -s "D:\silmaril cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080
 ```
 
 If upstream certificate verification on your machine causes `502 Bad Gateway`, retry with:
 
 ```powershell
-$env:SILMARIL_MITM_RULES = "D:\silmairl cdp\tools\mitm\rules.json"
-mitmdump -s "D:\silmairl cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080 --set ssl_insecure=true
+$env:SILMARIL_MITM_RULES = "D:\silmaril cdp\tools\mitm\rules.json"
+mitmdump -s "D:\silmaril cdp\tools\mitm\local_overrides.py" --listen-host 127.0.0.1 --listen-port 8080 --set ssl_insecure=true
 ```
 
 5. Launch Chrome with:
@@ -366,8 +444,8 @@ Behavior:
 Switch a rule between original/saved files:
 
 ```powershell
-silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use original --allow-mitm --yes
-silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmairl cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmairl cdp\tools\mitm\overrides\pizza.override.html" --use saved --allow-mitm --yes
+silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmaril cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmaril cdp\tools\mitm\overrides\pizza.override.html" --use original --allow-mitm --yes
+silmaril.cmd proxy-switch --match "https://en\.wikipedia\.org/wiki/Pizza(?:\?.*)?$" --original-file "D:\silmaril cdp\tools\mitm\overrides\pizza.raw.html" --saved-file "D:\silmaril cdp\tools\mitm\overrides\pizza.override.html" --use saved --allow-mitm --yes
 ```
 
 Notes:
@@ -412,7 +490,7 @@ silmaril.cmd target-show --port 9223 --json
 You can execute a flow file with built-in retries and artifact capture:
 
 ```powershell
-silmaril.cmd run "D:\silmairl cdp\flow.json" --json
+silmaril.cmd run "D:\silmaril cdp\flow.json" --json
 ```
 
 Minimal flow example:

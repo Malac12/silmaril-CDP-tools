@@ -5,19 +5,21 @@ description: Browser automation, DOM inspection, page mutation, wait orchestrati
 
 # Silmaril CDP
 
-Use this skill to operate the local Silmaril toolkit from PowerShell.
+Use this skill to operate the local Silmaril toolkit from PowerShell on Windows or PowerShell 7 on macOS.
 
 ## Local path hint
 
 - If a `LOCAL_PATHS.md` file exists beside this skill, read it first and treat it as the authoritative local installation path for the toolkit.
+- If `LOCAL_PATHS.md` lists both a Windows and macOS launcher, pick the one that matches the current OS.
 
 ## Locate the toolkit
 
 - Prefer the toolkit path recorded in `LOCAL_PATHS.md` when present.
-- Otherwise prefer `D:\silmairl cdp\silmaril.cmd` in this environment.
+- Otherwise prefer `D:\silmaril cdp\silmaril.cmd` in this environment.
+- On macOS, prefer a nearby checkout `silmaril-mac.sh` or `~/silmaril-cdp-tools/silmaril-mac.sh`.
 - If that path is missing, also check `%USERPROFILE%\silmaril-cdp-tools\silmaril.cmd`.
-- If neither exists, look for `silmaril.cmd` on `PATH` or in a nearby checkout.
-- Invoke from PowerShell with `& '...\silmaril.cmd' ...`.
+- If neither exists, look for `silmaril.cmd` or `silmaril-mac.sh` on `PATH` or in a nearby checkout.
+- Invoke from PowerShell with `& '...\silmaril.cmd' ...` on Windows or `& '...\silmaril-mac.sh' ...` on macOS.
 
 ## Install the toolkit if missing
 
@@ -27,7 +29,7 @@ Only clone or copy the toolkit after the user explicitly approves fetching or in
 
 1. Clone or copy the repository:
 
-   `git clone https://github.com/Malac12/silmaril-CDP-tools.git "D:\silmairl cdp"`
+   `git clone https://github.com/Malac12/silmaril-CDP-tools.git "D:\silmaril cdp"`
 
 2. Ensure Chrome, Chromium, or Edge is installed.
 
@@ -35,24 +37,33 @@ Only clone or copy the toolkit after the user explicitly approves fetching or in
 
 3. Run the toolkit from PowerShell:
 
-   `& 'D:\silmairl cdp\silmaril.cmd' openbrowser --json`
-   `& 'D:\silmairl cdp\silmaril.cmd' openUrl 'https://example.com' --json`
-   `& 'D:\silmairl cdp\silmaril.cmd' get-text 'body' --json`
+   `& 'D:\silmaril cdp\silmaril.cmd' openbrowser --json`
+   `& 'D:\silmaril cdp\silmaril.cmd' openUrl 'https://example.com' --json`
+   `& 'D:\silmaril cdp\silmaril.cmd' get-text 'body' --json`
 
 This is sufficient for the core CDP workflow. No machine-wide PowerShell execution policy change is required because `silmaril.cmd` invokes PowerShell with `ExecutionPolicy Bypass`.
 
+On macOS, use the shell launcher:
+
+`./silmaril-mac.sh openbrowser --json`
+`./silmaril-mac.sh openUrl 'https://example.com' --json`
+`./silmaril-mac.sh get-text 'body' --json`
+
 ## Default workflow
 
-1. Start or attach a CDP browser with `openbrowser`.
-2. Navigate with `openUrl`.
-3. Read page state with `exists`, `get-text`, `query`, or `get-dom`.
-4. Mutate only after validating selectors.
-5. Wait on one clear synchronization signal after each action.
-6. Prefer `run` for short repeatable flows.
+1. Check for an existing CDP browser session first with a lightweight command such as `get-currentUrl --json`.
+2. If the session check succeeds, reuse that browser instead of opening a new one.
+3. If the session check returns `CDP_UNAVAILABLE` or another no-browser signal, start a CDP browser with `openbrowser --json`, then recheck once with `get-currentUrl --json`.
+4. Navigate with `openUrl`.
+5. Read page state with `exists`, `get-text`, `query`, or `get-dom`.
+6. Mutate only after validating selectors.
+7. Wait on one clear synchronization signal after each action.
+8. Prefer `run` for short repeatable flows.
 
 ## Operating rules
 
 - Prefer `--json` for almost every command so later steps can parse structured output.
+- Do not launch a fresh browser blindly. Always check whether a CDP session is already available first, and only call `openbrowser` when no session is reachable.
 - Prefer live DOM commands over `get-source` when choosing selectors or checking rendered state.
 - Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
 - Use either `--target-id` or `--url-match` when multiple tabs exist; never use both together.

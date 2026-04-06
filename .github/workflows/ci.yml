@@ -60,14 +60,56 @@ jobs:
         run: |
           & "${{ github.workspace }}/tests/Run-Mac-Smoke.ps1" -SilmarilCommand "${{ github.workspace }}/silmaril-mac.sh"
 
-  integration-smoke:
-    if: github.event_name == 'workflow_dispatch' && inputs.run_integration == true
-    runs-on: windows-latest
+  macos-installer-smoke:
+    runs-on: macos-15-intel
     needs: lint-and-unit
+    timeout-minutes: 12
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Chrome
+        id: setup-chrome-installer
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: 146
+
+      - name: macOS Installer Smoke
+        shell: pwsh
+        env:
+          SILMARIL_BROWSER_PATH: ${{ steps.setup-chrome-installer.outputs.chrome-path }}
+          SILMARIL_CDP_TRACE: '1'
+        run: |
+          $installerPath = Join-Path $env:RUNNER_TEMP 'install-skill.sh'
+          $installerUrl = "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/install-skill.sh"
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          & "${{ github.workspace }}/tests/Run-Mac-Install-Smoke.ps1" -InstallerScript $installerPath -RepoUrlOverride "${{ github.workspace }}"
+
+  integration-smoke:
+    if: github.event_name != 'workflow_dispatch' || inputs.run_integration == true
+    runs-on: windows-latest
+    needs: lint-and-unit
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install mitmproxy
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install mitmproxy==12.2.1
+
+      - name: Install Chrome
+        id: setup-chrome-windows
+        uses: browser-actions/setup-chrome@v2
 
       - name: Install Pester
         shell: pwsh
@@ -77,5 +119,8 @@ jobs:
 
       - name: Integration Smoke
         shell: pwsh
+        env:
+          SILMARIL_BROWSER_PATH: ${{ steps.setup-chrome-windows.outputs.chrome-path }}
+          SILMARIL_CDP_TRACE: '1'
         run: |
           & "${{ github.workspace }}\tests\Run-Tests.ps1" -Integration

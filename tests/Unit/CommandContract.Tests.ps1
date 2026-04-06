@@ -238,3 +238,86 @@ Describe 'visual cursor command wiring' {
     }
   }
 }
+
+Describe 'openurl-proxy safeguard forwarding' {
+  BeforeEach {
+    $script:previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+    $script:previousHome = $env:HOME
+    $script:testRoot = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+    $script:testHome = Join-Path $script:testRoot 'home'
+    $script:profileDir = Join-Path $script:testRoot 'profile'
+    $script:fixtureFile = Join-Path $script:testRoot 'page.html'
+    $script:rulesFile = Join-Path $script:testRoot 'rules.json'
+    $script:mitmdumpPath = Join-Path $script:testHome 'tools/mitmproxy/12.2.1/mitmdump.exe'
+    $script:listenerCallCount = 0
+    $script:portListenChecks = 0
+
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:mitmdumpPath) | Out-Null
+    New-Item -ItemType Directory -Force -Path $script:profileDir | Out-Null
+    Set-Content -LiteralPath $script:mitmdumpPath -Value '' -Encoding UTF8
+    Set-Content -LiteralPath $script:fixtureFile -Value '<!doctype html><title>Proxy Smoke</title>' -Encoding UTF8
+    Set-Content -LiteralPath $script:rulesFile -Value '{"rules":[]}' -Encoding UTF8
+    $env:SILMARIL_OUTPUT_JSON = '1'
+    $env:HOME = $script:testHome
+
+    Mock Get-SilmarilListenerPid {
+      $script:listenerCallCount += 1
+      if ($script:listenerCallCount -eq 1) {
+        return $null
+      }
+
+      return 4242
+    }
+    Mock Test-SilmarilPortListening {
+      $script:portListenChecks += 1
+      if ($script:portListenChecks -eq 1) {
+        return $false
+      }
+
+      return $true
+    }
+    Mock Start-Process {
+      [pscustomobject]@{
+        HasExited = $false
+        Id = 4242
+        ExitCode = 0
+      }
+    }
+    Mock Start-SilmarilBrowserProcess { 'browser.exe' }
+    Mock Test-SilmarilCdpReady { $true }
+  }
+
+  AfterEach {
+    if ($null -eq $script:previousJsonMode) {
+      Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_OUTPUT_JSON = $script:previousJsonMode
+    }
+
+    if ($null -eq $script:previousHome) {
+      Remove-Item Env:HOME -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:HOME = $script:previousHome
+    }
+
+    Remove-Item -LiteralPath $script:testRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  It 'forwards the MITM acknowledgement when auto-starting proxy-override' {
+    $result = & (Join-Path $script:repoRoot 'commands/openurl-proxy.ps1') -RemainingArgs @(
+      $script:fixtureFile,
+      '--allow-mitm',
+      '--rules-file', $script:rulesFile,
+      '--profile-dir', $script:profileDir
+    )
+
+    $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+    $payload.ok | Should -BeTrue
+    $payload.proxyStarted | Should -BeTrue
+    $payload.proxyPid | Should -Be 4242
+    $payload.safeguard | Should -Be 'flag:--allow-mitm'
+  }
+}

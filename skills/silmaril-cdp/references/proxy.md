@@ -19,4 +19,4 @@ Use these commands only when the task needs local response overrides or proxy-ba
 
 ## Local documentation
 
-Read `D:\silmairl cdp\tools\mitm\README.md` for setup details, certificate notes, and example commands.
+Read `D:\silmaril cdp\tools\mitm\README.md` for setup details, certificate notes, and example commands.

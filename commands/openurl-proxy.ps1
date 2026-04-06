@@ -162,14 +162,18 @@ else {
     throw "Missing proxy command script: $proxyScript"
   }
 
-  & $proxyScript -RemainingArgs @(
-    "--rules-file"
-    $rulesFile
-    "--listen-host"
-    $listenHost
-    "--listen-port"
-    ([string]$listenPort)
-  ) | Out-Null
+  $proxyArgs = New-Object System.Collections.ArrayList
+  [void]$proxyArgs.Add("--rules-file")
+  [void]$proxyArgs.Add($rulesFile)
+  [void]$proxyArgs.Add("--listen-host")
+  [void]$proxyArgs.Add($listenHost)
+  [void]$proxyArgs.Add("--listen-port")
+  [void]$proxyArgs.Add([string]$listenPort)
+  if ($acknowledgementSource -like "flag:*") {
+    [void]$proxyArgs.Add("--allow-mitm")
+  }
+
+  & $proxyScript -RemainingArgs @($proxyArgs) | Out-Null
 
   $startedProxy = $true
   $listenerPid = Wait-SilmarilListener -ListenHost $listenHost -Port $listenPort -TimeoutMs $timeoutMs -PollMs $pollMs

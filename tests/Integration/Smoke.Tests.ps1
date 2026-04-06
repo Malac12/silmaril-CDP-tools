@@ -33,6 +33,28 @@ BeforeAll {
 
     return ($line | ConvertFrom-Json)
   }
+
+  function New-TestTempDirectory {
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+    New-Item -ItemType Directory -Force -Path $path | Out-Null
+    return $path
+  }
+
+  function Get-TestMitmdumpPath {
+    $defaultCandidate = Join-Path (Get-SilmarilUserHome) 'tools/mitmproxy/12.2.1/mitmdump.exe'
+    if (Test-Path -LiteralPath $defaultCandidate) {
+      return $defaultCandidate
+    }
+
+    foreach ($name in @('mitmdump.exe', 'mitmdump')) {
+      $command = Get-Command $name -ErrorAction SilentlyContinue
+      if ($command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source)) {
+        return [string]$command.Source
+      }
+    }
+
+    return $null
+  }
 }
 
 Describe 'Silmaril Integration Smoke' -Tag 'Integration' {
@@ -83,5 +105,101 @@ Describe 'Silmaril Integration Smoke' -Tag 'Integration' {
 
     $query = Invoke-SilmarilJson -CliArgs @('query', '#name', '--fields', 'value', '--limit', '1', '--port', ([string]$port), '--timeout-ms', '5000')
     $query.rows[0].value | Should -Be 'Smoke Input'
+  }
+
+  It 'supports openurl-proxy auto-start when MITM is explicitly acknowledged' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $mitmdumpPath = Get-TestMitmdumpPath
+    if ([string]::IsNullOrWhiteSpace($mitmdumpPath)) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: mitmdump not found.'
+      return
+    }
+
+    $cdpPort = Get-FreeLoopbackPort
+    $listenPort = Get-FreeLoopbackPort
+    $tempDir = New-TestTempDirectory
+    $rulesFile = Join-Path $tempDir 'rules.json'
+    $profileDir = Join-Path $tempDir 'profile'
+    $fixtureUri = ([System.Uri]::new((Resolve-Path -LiteralPath $script:fixture).Path)).AbsoluteUri
+    Set-Content -LiteralPath $rulesFile -Value '{"rules":[]}' -Encoding UTF8
+
+    $proxyPid = $null
+    try {
+      $open = Invoke-SilmarilJson -CliArgs @(
+        'openurl-proxy',
+        $script:fixture,
+        '--allow-mitm',
+        '--port', ([string]$cdpPort),
+        '--listen-port', ([string]$listenPort),
+        '--rules-file', $rulesFile,
+        '--profile-dir', $profileDir,
+        '--timeout-ms', '15000',
+        '--poll-ms', '200'
+      )
+
+      $open.ok | Should -BeTrue
+      $open.proxyStarted | Should -BeTrue
+      $open.safeguard | Should -Be 'flag:--allow-mitm'
+      $open.url | Should -Be $fixtureUri
+      $proxyPid = $open.proxyPid
+
+      (Invoke-SilmarilJson -CliArgs @('wait-for', '#title', '--port', ([string]$cdpPort), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+      $text = Invoke-SilmarilJson -CliArgs @('get-text', '#title', '--port', ([string]$cdpPort), '--timeout-ms', '5000')
+      $text.text | Should -Be 'Smoke Title'
+    }
+    finally {
+      if ($null -ne $proxyPid) {
+        Stop-Process -Id $proxyPid -Force -ErrorAction SilentlyContinue
+      }
+      Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  It 'captures final-dom from the last effective run port' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $defaultPort = Get-FreeLoopbackPort
+    $flowPort = Get-FreeLoopbackPort
+    $tempDir = New-TestTempDirectory
+    $artifactsDir = Join-Path $tempDir 'artifacts'
+    $flowPath = Join-Path $tempDir 'flow.json'
+
+    $flow = [ordered]@{
+      name = 'port-override-smoke'
+      settings = [ordered]@{
+        artifactsDir = $artifactsDir
+        port = $defaultPort
+        timeoutMs = 12000
+        pollMs = 300
+      }
+      steps = @(
+        [ordered]@{ id = 'browser'; action = 'openbrowser'; port = $flowPort; timeoutMs = 12000; pollMs = 300 },
+        [ordered]@{ id = 'page'; action = 'openUrl'; port = $flowPort; url = $script:fixture; timeoutMs = 5000 },
+        [ordered]@{ id = 'wait'; action = 'wait-for'; port = $flowPort; selector = '#title'; timeoutMs = 5000; pollMs = 100 },
+        [ordered]@{ id = 'query'; action = 'query'; port = $flowPort; selector = '#title'; fields = 'text'; limit = 1; timeoutMs = 5000 }
+      )
+    }
+
+    try {
+      ($flow | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $flowPath -Encoding UTF8
+
+      $run = Invoke-SilmarilJson -CliArgs @('run', $flowPath, '--port', ([string]$defaultPort), '--timeout-ms', '12000', '--poll-ms', '300')
+      $run.ok | Should -BeTrue
+
+      $domPath = Join-Path $artifactsDir 'final-dom.html'
+      Test-Path -LiteralPath $domPath | Should -BeTrue
+      $dom = Get-Content -LiteralPath $domPath -Raw -Encoding UTF8
+      $dom | Should -Match 'Smoke Title'
+    }
+    finally {
+      Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
 }

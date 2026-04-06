@@ -117,7 +117,7 @@ $target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 if ($visualCursor) {
   try {
-    Invoke-SilmarilVisualCursorCue -Target $target -Selector $selector -Mode "type" -TimeoutSec $timeoutSec | Out-Null
+    Invoke-SilmarilVisualCursorCue -Target $target -Selector $selector -Mode "type" -Text $textValue -TimeoutSec $timeoutSec | Out-Null
   }
   catch {
     Write-SilmarilTrace -Message ("Visual cursor cue failed for type selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)

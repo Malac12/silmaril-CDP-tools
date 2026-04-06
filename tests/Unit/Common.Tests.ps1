@@ -438,6 +438,7 @@ Describe 'Invoke-SilmarilVisualCursorCue' {
     $result.ok | Should -BeTrue
     $script:capturedVisualCursorExpression.Contains('var sel = "#go";') | Should -BeTrue
     $script:capturedVisualCursorExpression.Contains('var mode = "click";') | Should -BeTrue
+    $script:capturedVisualCursorExpression.Contains('silmaril-visual-cursor--ibeam') | Should -BeTrue
   }
 }
 

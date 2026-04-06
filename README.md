@@ -39,10 +39,16 @@ It also includes:
 
 ## Quick Start
 
-Install the skill:
+Install the skill on Windows:
 
 ```powershell
 irm https://raw.githubusercontent.com/Malac12/silmaril-CDP-tools/main/install-skill.ps1 | iex
+```
+
+Install the skill on macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Malac12/silmaril-CDP-tools/main/install-skill.sh | bash
 ```
 
 ## Documentation

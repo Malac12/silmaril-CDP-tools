@@ -2136,6 +2136,7 @@ function Invoke-SilmarilVisualCursorCue {
     [string]$Selector,
     [ValidateSet("click", "type")]
     [string]$Mode,
+    [string]$Text = $null,
     [int]$TimeoutSec = 20
   )
 
@@ -2145,11 +2146,13 @@ function Invoke-SilmarilVisualCursorCue {
 
   $selectorJs = $Selector | ConvertTo-Json -Compress
   $modeJs = $Mode | ConvertTo-Json -Compress
+  $textJs = if ($null -ne $Text) { $Text | ConvertTo-Json -Compress } else { "null" }
 
   $expression = @"
 (async function(){
   var sel = $selectorJs;
   var mode = $modeJs;
+  var typedText = $textJs;
   var rootId = '__silmaril_visual_cursor_root__';
   var styleId = '__silmaril_visual_cursor_style__';
 
@@ -2165,6 +2168,72 @@ function Invoke-SilmarilVisualCursorCue {
     return Math.min(max, Math.max(min, value));
   };
 
+  var dispatchInput = function(target, ch){
+    try {
+      if (typeof InputEvent === 'function') {
+        target.dispatchEvent(new InputEvent('input', {
+          bubbles: true,
+          data: ch,
+          inputType: 'insertText'
+        }));
+        return;
+      }
+    } catch (_) {}
+
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  var placeCaretAtEnd = function(target){
+    try {
+      if ('value' in target && typeof target.setSelectionRange === 'function') {
+        var n = String(target.value || '').length;
+        target.setSelectionRange(n, n);
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      if (target.isContentEditable) {
+        var selection = window.getSelection();
+        if (!selection) return;
+        var range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    } catch (_) {}
+  };
+
+  var setEditableValue = function(target, value){
+    if ('value' in target) {
+      target.value = value;
+      placeCaretAtEnd(target);
+      return;
+    }
+
+    target.textContent = value;
+    placeCaretAtEnd(target);
+  };
+
+  var appendEditableChar = function(target, ch){
+    if ('value' in target) {
+      target.value = String(target.value || '') + ch;
+      placeCaretAtEnd(target);
+      return;
+    }
+
+    target.textContent = String(target.textContent || '') + ch;
+    placeCaretAtEnd(target);
+  };
+
+  var getTypingDelay = function(ch, index){
+    var base = 58 + ((index % 4) * 16);
+    if (/[\s]/.test(ch)) return base + 26;
+    if (/[,.!?;:]/.test(ch)) return base + 54;
+    return base;
+  };
+
   var removeNode = function(id){
     var node = document.getElementById(id);
     if (node && node.parentNode) {
@@ -2177,6 +2246,9 @@ function Invoke-SilmarilVisualCursorCue {
 
   var overlayRoot = null;
   var overlayStyle = null;
+  var restoreCaretColor = false;
+  var previousCaretColor = '';
+  var activeEditable = null;
   try {
     var el = document.querySelector(sel);
     if (!el) {
@@ -2208,13 +2280,13 @@ function Invoke-SilmarilVisualCursorCue {
     overlayStyle.id = styleId;
     overlayStyle.textContent = [
       '.silmaril-visual-root{position:fixed;inset:0;pointer-events:none;z-index:2147483647;overflow:hidden;}',
-      '.silmaril-visual-cursor{position:fixed;left:0;top:0;width:22px;height:30px;transform:translate(-5px,-4px) rotate(-14deg);transition:left 180ms cubic-bezier(0.22,0.8,0.2,1),top 180ms cubic-bezier(0.22,0.8,0.2,1),transform 120ms ease;}',
-      '.silmaril-visual-cursor::before{content:"";position:absolute;left:0;top:0;width:0;height:0;border-top:20px solid #111;border-right:12px solid transparent;border-bottom:8px solid transparent;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.28));}',
-      '.silmaril-visual-cursor::after{content:"";position:absolute;left:4px;top:4px;width:0;height:0;border-top:12px solid #fff;border-right:7px solid transparent;border-bottom:5px solid transparent;}',
-      '.silmaril-visual-cursor--pressed{transform:translate(-4px,-2px) rotate(-14deg) scale(0.92);}',
-      '.silmaril-visual-pulse{position:fixed;left:0;top:0;width:16px;height:16px;border-radius:999px;transform:translate(-50%,-50%) scale(0.35);opacity:0;transition:transform 170ms ease,opacity 170ms ease;background:rgba(59,130,246,0.18);border:2px solid rgba(37,99,235,0.85);box-shadow:0 0 0 1px rgba(255,255,255,0.6);}',
-      '.silmaril-visual-pulse--type{background:rgba(34,197,94,0.18);border-color:rgba(22,163,74,0.85);}',
-      '.silmaril-visual-pulse--active{opacity:1;transform:translate(-50%,-50%) scale(2.8);}'
+      '.silmaril-visual-cursor{position:fixed;left:0;top:0;opacity:1;transform-origin:4px 4px;transition:left 340ms cubic-bezier(0.2,0.85,0.18,1),top 340ms cubic-bezier(0.2,0.85,0.18,1),transform 160ms ease,opacity 120ms ease;filter:drop-shadow(0 2px 6px rgba(20,64,170,0.24));background-repeat:no-repeat;}',
+      '.silmaril-visual-cursor--arrow{width:28px;height:40px;transform:translate(-2px,-2px) rotate(-2deg);background-size:28px 40px;background-image:url(\"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2728%27 height=%2740%27 viewBox=%270 0 28 40%27%3E%3Cpath d=%27M3 2.5L3 31L10.9 24.5L15.5 36.3L20.8 33.9L16.2 22.4L25 22.4Z%27 fill=%27%23dbeafe%27 stroke=%27%231d4ed8%27 stroke-width=%272.1%27 stroke-linejoin=%27round%27/%3E%3Cpath d=%27M8.7 23.1L10.8 21.4L14.2 29.9L17.1 28.6L13.8 20.3L20.1 20.3Z%27 fill=%27%2393c5fd%27 opacity=%270.95%27/%3E%3C/svg%3E\");}',
+      '.silmaril-visual-cursor--ibeam{width:22px;height:38px;transform:translate(-11px,-19px);transition:left 470ms cubic-bezier(0.2,0.85,0.18,1),top 470ms cubic-bezier(0.2,0.85,0.18,1),transform 180ms ease,opacity 120ms ease;background-size:22px 38px;background-image:url(\"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2722%27 height=%2738%27 viewBox=%270 0 22 38%27%3E%3Cpath d=%27M4.5 4.5H17.5M4.5 33.5H17.5M11 4.5V33.5%27 stroke=%27%231d4ed8%27 stroke-width=%273.6%27 stroke-linecap=%27round%27/%3E%3Cpath d=%27M7.2 9.2H14.8M7.2 28.8H14.8M11 7.2V30.8%27 stroke=%27%2360a5fa%27 stroke-width=%272.1%27 stroke-linecap=%27round%27 opacity=%270.98%27/%3E%3C/svg%3E\");}',
+      '.silmaril-visual-cursor--pressed.silmaril-visual-cursor--arrow{transform:translate(-1px,-1px) rotate(-2deg) scale(0.95);}',
+      '.silmaril-visual-cursor--pressed.silmaril-visual-cursor--ibeam{transform:translate(-11px,-19px) scale(0.95);}',
+      '.silmaril-visual-pulse{position:fixed;left:0;top:0;width:12px;height:12px;border-radius:999px;transform:translate(-50%,-50%) scale(0.3);opacity:0;transition:transform 210ms ease,opacity 210ms ease;border:1.5px solid rgba(29,78,216,0.5);background:rgba(147,197,253,0.12);box-shadow:0 0 0 1px rgba(255,255,255,0.42) inset,0 0 8px rgba(29,78,216,0.12);}',
+      '.silmaril-visual-pulse--active{opacity:0.85;transform:translate(-50%,-50%) scale(1.9);}'
     ].join('');
 
     (document.head || host).appendChild(overlayStyle);
@@ -2224,10 +2296,28 @@ function Invoke-SilmarilVisualCursorCue {
     overlayRoot.className = 'silmaril-visual-root';
 
     var pulse = document.createElement('div');
-    pulse.className = 'silmaril-visual-pulse' + (mode === 'type' ? ' silmaril-visual-pulse--type' : '');
+    pulse.className = 'silmaril-visual-pulse';
 
+    var tag = (el.tagName || '').toLowerCase();
+    var inputType = (typeof el.type === 'string') ? el.type.toLowerCase() : '';
+    var isTextInput = (
+      tag === 'textarea' ||
+      !!el.isContentEditable ||
+      (tag === 'input' && (
+        inputType === '' ||
+        inputType === 'text' ||
+        inputType === 'search' ||
+        inputType === 'email' ||
+        inputType === 'url' ||
+        inputType === 'tel' ||
+        inputType === 'password' ||
+        inputType === 'number'
+      ))
+    );
+
+    var cursorVariant = (mode === 'type' && isTextInput) ? 'silmaril-visual-cursor--ibeam' : 'silmaril-visual-cursor--arrow';
     var cursor = document.createElement('div');
-    cursor.className = 'silmaril-visual-cursor';
+    cursor.className = 'silmaril-visual-cursor ' + cursorVariant;
 
     overlayRoot.appendChild(pulse);
     overlayRoot.appendChild(cursor);
@@ -2235,8 +2325,17 @@ function Invoke-SilmarilVisualCursorCue {
 
     var viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0, 40);
     var viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0, 40);
+    var computedStyle = window.getComputedStyle(el);
+    var paddingLeft = parseFloat((computedStyle && computedStyle.paddingLeft) ? computedStyle.paddingLeft : '0');
+    if (!isFinite(paddingLeft)) {
+      paddingLeft = 0;
+    }
+
     var targetX = clamp(rect.left + (rect.width / 2), 14, Math.max(14, viewportWidth - 14));
     var targetY = clamp(rect.top + (rect.height / 2), 14, Math.max(14, viewportHeight - 14));
+    if (cursorVariant === 'silmaril-visual-cursor--ibeam') {
+      targetX = clamp(rect.left + Math.max(10, Math.min(paddingLeft + 6, rect.width - 10)), 14, Math.max(14, viewportWidth - 14));
+    }
     var startX = clamp(targetX - 84, 14, Math.max(14, viewportWidth - 14));
     var startY = clamp(targetY - 56, 14, Math.max(14, viewportHeight - 14));
 
@@ -2249,19 +2348,57 @@ function Invoke-SilmarilVisualCursorCue {
     cursor.style.left = targetX + 'px';
     cursor.style.top = targetY + 'px';
 
-    await wait(190);
+    await wait(cursorVariant === 'silmaril-visual-cursor--ibeam' ? 520 : 360);
+
+    if (mode === 'type' && isTextInput && typedText !== null) {
+      activeEditable = el;
+      if (typeof el.focus === 'function') {
+        el.focus();
+      }
+
+      previousCaretColor = el.style.caretColor || '';
+      el.style.caretColor = '#2563eb';
+      restoreCaretColor = true;
+
+      setEditableValue(el, '');
+      dispatchInput(el, '');
+      cursor.style.opacity = '0';
+      pulse.classList.add('silmaril-visual-pulse--active');
+
+      for (var idx = 0; idx < typedText.length; idx++) {
+        var ch = typedText.charAt(idx);
+        appendEditableChar(el, ch);
+        dispatchInput(el, ch);
+        await wait(getTypingDelay(ch, idx));
+      }
+
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      await wait(260);
+
+      return {
+        ok: true,
+        selector: sel,
+        mode: mode,
+        x: Math.round(targetX),
+        y: Math.round(targetY),
+        cursorVariant: cursorVariant,
+        handledTyping: true
+      };
+    }
 
     cursor.classList.add('silmaril-visual-cursor--pressed');
     pulse.classList.add('silmaril-visual-pulse--active');
 
-    await wait(mode === 'type' ? 220 : 170);
+    await wait(mode === 'type' ? 280 : 230);
 
     return {
       ok: true,
       selector: sel,
       mode: mode,
       x: Math.round(targetX),
-      y: Math.round(targetY)
+      y: Math.round(targetY),
+      cursorVariant: cursorVariant,
+      handledTyping: false
     };
   } catch (error) {
     return {
@@ -2272,6 +2409,11 @@ function Invoke-SilmarilVisualCursorCue {
       message: String((error && error.message) ? error.message : error)
     };
   } finally {
+    if (restoreCaretColor && activeEditable) {
+      try {
+        activeEditable.style.caretColor = previousCaretColor;
+      } catch (_) {}
+    }
     if (overlayRoot && overlayRoot.parentNode) {
       overlayRoot.parentNode.removeChild(overlayRoot);
     }

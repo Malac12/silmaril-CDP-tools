@@ -265,6 +265,9 @@ $runLog = New-Object System.Collections.Generic.List[string]
 $stepResults = New-Object System.Collections.Generic.List[object]
 $startedAt = (Get-Date).ToString("o")
 $runName = [string](Get-SilmarilOptionalValue -Object $flow -Name "name" -Default "flow")
+$finalSnapshotPort = [int]$defaults.port
+$finalSnapshotTargetId = [string]$defaults.targetId
+$finalSnapshotUrlMatch = [string]$defaults.urlMatch
 
 for ($stepIndex = 0; $stepIndex -lt $steps.Count; $stepIndex++) {
   $step = $steps[$stepIndex]
@@ -425,12 +428,15 @@ for ($stepIndex = 0; $stepIndex -lt $steps.Count; $stepIndex++) {
     $message = [string](Get-SilmarilOptionalValue -Object $lastPayload -Name "message" -Default "Step failed")
     throw "Run failed at step '$stepId' ($action): $message"
   }
+
+  $finalSnapshotPort = $stepPort
+  $finalSnapshotTargetId = $stepTargetId
+  $finalSnapshotUrlMatch = $stepUrlMatch
 }
 
-$domResult = Invoke-SilmarilJsonCommand -CommandName "get-dom" -CommandArgs @(
-  "--port", [string]$defaults.port,
-  "--timeout-ms", [string]$defaults.timeoutMs
-)
+$finalDomArgs = New-Object System.Collections.ArrayList
+Add-SilmarilCommonStepFlags -Args $finalDomArgs -Port $finalSnapshotPort -TargetId $finalSnapshotTargetId -UrlMatch $finalSnapshotUrlMatch -TimeoutMs $defaults.timeoutMs -PollMs $defaults.pollMs
+$domResult = Invoke-SilmarilJsonCommand -CommandName "get-dom" -CommandArgs @($finalDomArgs)
 
 if ($domResult.payload.ok) {
   $domHtml = [string](Get-SilmarilOptionalValue -Object $domResult.payload -Name "html" -Default "")

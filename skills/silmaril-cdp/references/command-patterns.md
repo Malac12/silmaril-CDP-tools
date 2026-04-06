@@ -5,8 +5,8 @@
 Use the checked-out toolkit directly:
 
 ```powershell
-& 'D:\silmairl cdp\silmaril.cmd' openbrowser --json
-& 'D:\silmairl cdp\silmaril.cmd' openUrl 'https://example.com' --json
+& 'D:\silmaril cdp\silmaril.cmd' openbrowser --json
+& 'D:\silmaril cdp\silmaril.cmd' openUrl 'https://example.com' --json
 ```
 
 If the checkout is not present at that path, resolve `silmaril.cmd` from `PATH` or the local workspace before proceeding.
@@ -44,20 +44,20 @@ Use one explicit wait after each action instead of sleeping.
 Prefer inline `eval-js` only for short expressions:
 
 ```powershell
-& 'D:\silmairl cdp\silmaril.cmd' eval-js "document.title" --allow-unsafe-js --yes --json
+& 'D:\silmaril cdp\silmaril.cmd' eval-js "document.title" --allow-unsafe-js --yes --json
 ```
 
 Prefer file mode for longer logic:
 
 ```powershell
 Set-Content -LiteralPath 'C:\Users\hangx\silmaril-expr.js' -Encoding UTF8 -Value "JSON.stringify(Array.from(document.querySelectorAll('a[href]')).map(a => a.href))"
-& 'D:\silmairl cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --allow-unsafe-js --yes --json
+& 'D:\silmaril cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --allow-unsafe-js --yes --json
 ```
 
 If the file declares top-level helpers that may be reused on the same tab, isolate it:
 
 ```powershell
-& 'D:\silmairl cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --allow-unsafe-js --yes --isolate-scope --json
+& 'D:\silmaril cdp\silmaril.cmd' eval-js --file 'C:\Users\hangx\silmaril-expr.js' --allow-unsafe-js --yes --isolate-scope --json
 ```
 
 High-risk rule:
@@ -83,4 +83,4 @@ Useful inspection commands:
 
 ## Source files
 
-For deeper details, consult the local toolkit docs in `D:\silmairl cdp\COMMAND_GUIDE.md` and the command implementations under `D:\silmairl cdp\commands\`.
+For deeper details, consult the local toolkit docs in `D:\silmaril cdp\COMMAND_GUIDE.md` and the command implementations under `D:\silmaril cdp\commands\`.
