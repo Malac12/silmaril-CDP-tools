@@ -237,6 +237,380 @@ Describe 'visual cursor command wiring' {
       }
     }
   }
+
+  It 'uses native value setters in the type expression for controlled inputs' {
+    $typeCommandSource = Get-Content -LiteralPath (Join-Path $script:repoRoot 'commands/type.ps1') -Raw
+
+    $typeCommandSource | Should -Match 'Object\.getOwnPropertyDescriptor'
+    $typeCommandSource | Should -Match 'HTMLInputElement\.prototype'
+    $typeCommandSource | Should -Match 'HTMLTextAreaElement\.prototype'
+    $typeCommandSource | Should -Match 'value_mismatch'
+    $typeCommandSource | Should -Match 'insertReplacementText'
+    $typeCommandSource | Should -Match 'previousValue'
+  }
+
+  It 'returns previous and final values in type json output when available' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-3'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-3'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+            previousValue = 'old value'
+            value = 'new value'
+            inputType = 'insertReplacementText'
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/type.ps1') -RemainingArgs @('#name', 'new', 'value', '--yes')
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.previousValue | Should -Be 'old value'
+      $payload.value | Should -Be 'new value'
+      $payload.inputType | Should -Be 'insertReplacementText'
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
+
+  It 'throws a clear error when typed value does not stick' {
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-4'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-4'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $false
+            reason = 'value_mismatch'
+            expected = 'hello'
+            actual = 'helloold'
+          }
+        }
+      }
+    }
+
+    {
+      & (Join-Path $script:repoRoot 'commands/type.ps1') -RemainingArgs @('#name', 'hello', '--yes')
+    } | Should -Throw "*Typed value did not stick*Expected 'hello' but found 'helloold'*"
+  }
+}
+
+Describe 'scroll command wiring' {
+  It 'supports selector scroll-into-view mode' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-scroll-1'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-scroll-1'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+            mode = 'element'
+            top = 240
+            left = 18
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/scroll.ps1') -RemainingArgs @(
+        '#result',
+        '--behavior', 'smooth',
+        '--block', 'start',
+        '--inline', 'nearest'
+      )
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.mode | Should -Be 'element'
+      $payload.selector | Should -Be '#result'
+      $payload.behavior | Should -Be 'smooth'
+      $payload.block | Should -Be 'start'
+      $payload.inline | Should -Be 'nearest'
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
+
+  It 'supports selector ref scroll-into-view mode' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+    $previousStateDir = $env:SILMARIL_STATE_DIR
+    $testStateDir = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+    New-Item -ItemType Directory -Force -Path $testStateDir | Out-Null
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-scroll-ref'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-scroll-ref'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Test-SilmarilSnapshotRefMatch {
+      [pscustomobject]@{ ok = $true }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+            mode = 'element'
+            top = 240
+            left = 18
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $env:SILMARIL_STATE_DIR = $testStateDir
+      Save-SilmarilSnapshotState -Port 9222 -State ([ordered]@{
+        snapshotToken = 'snapshot-scroll'
+        target = [ordered]@{
+          id = 'page-scroll-ref'
+          url = 'https://example.com'
+          title = 'Example'
+          comparableUrl = Get-SilmarilComparableUrl -Url 'https://example.com'
+        }
+        refs = @(
+          [ordered]@{
+            id = 'e1'
+            selector = '#result'
+            label = 'Result'
+            kind = 'heading'
+            role = 'heading'
+            tag = 'h2'
+          }
+        )
+      })
+
+      $result = & (Join-Path $script:repoRoot 'commands/scroll.ps1') -RemainingArgs @(
+        'e1',
+        '--behavior', 'smooth',
+        '--block', 'start',
+        '--inline', 'nearest'
+      )
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.mode | Should -Be 'element'
+      $payload.selector | Should -Be 'e1'
+      $payload.normalizedSelector | Should -Be '#result'
+      $payload.resolvedSelector | Should -Be '#result'
+      $payload.resolvedRef.id | Should -Be 'e1'
+      $payload.behavior | Should -Be 'smooth'
+      $payload.block | Should -Be 'start'
+      $payload.inline | Should -Be 'nearest'
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+
+      if ($null -eq $previousStateDir) {
+        Remove-Item Env:SILMARIL_STATE_DIR -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_STATE_DIR = $previousStateDir
+      }
+
+      Remove-Item -LiteralPath $testStateDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  It 'supports page delta scrolling' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-scroll-2'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-scroll-2'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+            mode = 'delta'
+            targetKind = 'page'
+            scrollLeft = 0
+            scrollTop = 800
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/scroll.ps1') -RemainingArgs @(
+        '--x', '0',
+        '--y', '800'
+      )
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.mode | Should -Be 'delta'
+      $payload.targetKind | Should -Be 'page'
+      $payload.x | Should -Be 0
+      $payload.y | Should -Be 800
+      $payload.scrollTop | Should -Be 800
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
+
+  It 'throws a clear error when the scroll container selector does not match' {
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-scroll-3'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-scroll-3'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $false
+            reason = 'container_not_found'
+          }
+        }
+      }
+    }
+
+    {
+      & (Join-Path $script:repoRoot 'commands/scroll.ps1') -RemainingArgs @(
+        '--container', '.missing-pane',
+        '--y', '400'
+      )
+    } | Should -Throw '*No scroll container matched selector: .missing-pane*'
+  }
+}
+
+Describe 'eval-js confirmation parsing' {
+  It 'accepts --yes before target selection flags' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-5'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-5'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'explicit-target-id'
+        TargetStateSource = 'explicit-target-id'
+        PageCount = 1
+        CandidateCount = 1
+      }
+    }
+    Mock Invoke-SilmarilCdpCommand {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          type = 'string'
+          value = 'Example title'
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/eval-js.ps1') -RemainingArgs @(
+        'document.title',
+        '--yes',
+        '--allow-unsafe-js',
+        '--target-id',
+        'page-5'
+      )
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.ok | Should -BeTrue
+      $payload.value | Should -Be 'Example title'
+      $payload.targetId | Should -Be 'page-5'
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
 }
 
 Describe 'openurl-proxy safeguard forwarding' {
@@ -249,8 +623,8 @@ Describe 'openurl-proxy safeguard forwarding' {
     $script:fixtureFile = Join-Path $script:testRoot 'page.html'
     $script:rulesFile = Join-Path $script:testRoot 'rules.json'
     $script:mitmdumpPath = Join-Path $script:testHome 'tools/mitmproxy/12.2.1/mitmdump.exe'
-    $script:listenerCallCount = 0
-    $script:portListenChecks = 0
+    $global:listenerCallCount = 0
+    $global:portListenChecks = 0
 
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:mitmdumpPath) | Out-Null
     New-Item -ItemType Directory -Force -Path $script:profileDir | Out-Null
@@ -261,16 +635,16 @@ Describe 'openurl-proxy safeguard forwarding' {
     $env:HOME = $script:testHome
 
     Mock Get-SilmarilListenerPid {
-      $script:listenerCallCount += 1
-      if ($script:listenerCallCount -eq 1) {
+      $global:listenerCallCount += 1
+      if ($global:listenerCallCount -eq 1) {
         return $null
       }
 
       return 4242
     }
     Mock Test-SilmarilPortListening {
-      $script:portListenChecks += 1
-      if ($script:portListenChecks -eq 1) {
+      $global:portListenChecks += 1
+      if ($global:portListenChecks -eq 1) {
         return $false
       }
 
@@ -303,6 +677,8 @@ Describe 'openurl-proxy safeguard forwarding' {
     }
 
     Remove-Item -LiteralPath $script:testRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Variable -Name listenerCallCount -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable -Name portListenChecks -Scope Global -ErrorAction SilentlyContinue
   }
 
   It 'forwards the MITM acknowledgement when auto-starting proxy-override' {
@@ -319,5 +695,174 @@ Describe 'openurl-proxy safeguard forwarding' {
     $payload.proxyStarted | Should -BeTrue
     $payload.proxyPid | Should -Be 4242
     $payload.safeguard | Should -Be 'flag:--allow-mitm'
+  }
+}
+
+Describe 'snapshot ref command wiring' {
+  BeforeEach {
+    $script:previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+    $script:previousStateDir = $env:SILMARIL_STATE_DIR
+    $script:testStateDir = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+    New-Item -ItemType Directory -Force -Path $script:testStateDir | Out-Null
+    $env:SILMARIL_OUTPUT_JSON = '1'
+    $env:SILMARIL_STATE_DIR = $script:testStateDir
+  }
+
+  AfterEach {
+    if ($null -eq $script:previousJsonMode) {
+      Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_OUTPUT_JSON = $script:previousJsonMode
+    }
+
+    if ($null -eq $script:previousStateDir) {
+      Remove-Item Env:SILMARIL_STATE_DIR -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_STATE_DIR = $script:previousStateDir
+    }
+
+    Remove-Item -LiteralPath $script:testStateDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  It 'allows click to accept a snapshot ref and emits resolved metadata' {
+    Save-SilmarilSnapshotState -Port 9222 -State ([ordered]@{
+      snapshotToken = 'snapshot-click'
+      target = [ordered]@{
+        id = 'page-1'
+        url = 'https://example.com'
+        title = 'Example'
+        comparableUrl = Get-SilmarilComparableUrl -Url 'https://example.com'
+      }
+      refs = @(
+        [ordered]@{
+          id = 'e1'
+          selector = '#go'
+          label = 'Go'
+          kind = 'button'
+          role = 'button'
+          tag = 'button'
+        }
+      )
+    })
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-1'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Test-SilmarilSnapshotRefMatch {
+      [pscustomobject]@{ ok = $true }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+          }
+        }
+      }
+    }
+
+    $result = & (Join-Path $script:repoRoot 'commands/click.ps1') -RemainingArgs @('e1', '--yes')
+    $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+    $payload.ok | Should -BeTrue
+    $payload.selector | Should -Be 'e1'
+    $payload.inputSelectorOrRef | Should -Be 'e1'
+    $payload.normalizedSelector | Should -Be '#go'
+    $payload.resolvedSelector | Should -Be '#go'
+    $payload.resolvedRef.id | Should -Be 'e1'
+    $payload.resolvedRef.snapshotToken | Should -Be 'snapshot-click'
+    Assert-MockCalled Test-SilmarilSnapshotRefMatch -Times 1 -Exactly
+  }
+
+  It 'clears snapshot state alongside target-clear' {
+    Save-SilmarilSnapshotState -Port 9222 -State ([ordered]@{
+      snapshotToken = 'snapshot-clear'
+      target = [ordered]@{
+        id = 'page-1'
+        url = 'https://example.com'
+        title = 'Example'
+        comparableUrl = Get-SilmarilComparableUrl -Url 'https://example.com'
+      }
+      refs = @()
+    })
+
+    $result = & (Join-Path $script:repoRoot 'commands/target-clear.ps1') -RemainingArgs @('--yes')
+    $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+    $payload.ok | Should -BeTrue
+    $payload.removedSnapshot | Should -BeTrue
+    (Get-SilmarilSnapshotState -Port 9222) | Should -BeNullOrEmpty
+  }
+
+  It 'passes content coverage through snapshot and reports non-viewport output' {
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-snapshot'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-snapshot'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            snapshotToken = 'snapshot-content'
+            coverage = 'content'
+            viewportOnly = $false
+            refCount = 1
+            refs = @(
+              [pscustomobject]@{
+                id = 'e1'
+                selector = '#content-title'
+                label = 'Content Focus Title'
+                kind = 'heading'
+                role = 'heading'
+                tag = 'h1'
+              }
+            )
+            nodes = @()
+            lines = @('e1 heading ""Content Focus Title""')
+          }
+        }
+      }
+    }
+
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/snapshot.ps1') -RemainingArgs @('--coverage', 'content')
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.ok | Should -BeTrue
+      $payload.coverage | Should -Be 'content'
+      $payload.viewportOnly | Should -BeFalse
+      $payload.refs[0].id | Should -Be 'e1'
+      Assert-MockCalled Invoke-SilmarilRuntimeEvaluate -Times 1 -Exactly
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
   }
 }

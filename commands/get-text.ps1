@@ -23,13 +23,14 @@ $selectorInput = [string]$RemainingArgs[0]
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
-$selector = Normalize-SilmarilSelector -Selector $selectorInput
-
-$selectorJs = $selector | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return null; var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent; return txt == null ? '' : txt; })()"
 
 $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $target = $targetContext.Target
+$selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+$selector = [string]$selectorResolution.resolvedSelector
+$selectorJs = $selector | ConvertTo-Json -Compress
+$expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return null; var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent; return txt == null ? '' : txt; })()"
+
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-text"
@@ -38,11 +39,11 @@ if ($null -eq $value) {
   throw "No element matched selector: $selectorInput"
 }
 
-Write-SilmarilCommandResult -Command "get-text" -Text ([string]$value) -Data (Add-SilmarilTargetMetadata -Data @{
+Write-SilmarilCommandResult -Command "get-text" -Text ([string]$value) -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{
   selector = $selectorInput
   text     = [string]$value
   port     = $port
   targetId = $targetId
   urlMatch = $urlMatch
   normalizedSelector = $selector
-} -TargetContext $targetContext)
+} -Resolution $selectorResolution) -TargetContext $targetContext)

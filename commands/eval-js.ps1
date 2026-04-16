@@ -66,8 +66,19 @@ if ($RemainingArgs.Count -lt 2) {
   throw "eval-js requires expression and confirmation flag --yes, or --file <path> --yes"
 }
 
-$confirmation = [string]$RemainingArgs[$RemainingArgs.Count - 1]
-if ($confirmation -ne "--yes") {
+$confirmEval = $false
+$filteredArgs = @()
+foreach ($arg in $RemainingArgs) {
+  if ([string]::Equals([string]$arg, "--yes", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $confirmEval = $true
+    continue
+  }
+
+  $filteredArgs += [string]$arg
+}
+$RemainingArgs = $filteredArgs
+
+if (-not $confirmEval) {
   throw "eval-js requires explicit confirmation flag --yes"
 }
 
@@ -78,14 +89,11 @@ $acknowledgementSource = Resolve-SilmarilHighRiskAcknowledgement `
   -EnvVar "SILMARIL_ALLOW_UNSAFE_JS" `
   -RiskDescription "arbitrary page JavaScript execution"
 
-$payloadParts = @()
-if ($RemainingArgs.Count -gt 1) {
-  $payloadParts = $RemainingArgs[0..($RemainingArgs.Count - 2)]
-}
-
-if ($payloadParts.Count -eq 0) {
+if ($RemainingArgs.Count -eq 0) {
   throw "Expression cannot be empty."
 }
+
+$payloadParts = @($RemainingArgs)
 
 $maxPayloadBytes = 1048576
 $expressionInput = $null

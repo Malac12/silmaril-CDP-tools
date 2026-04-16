@@ -2,6 +2,7 @@ BeforeAll {
   $script:repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
   $script:entryScript = Join-Path $script:repoRoot 'silmaril.ps1'
   $script:fixture = Join-Path $script:repoRoot 'tests/fixtures/smoke-page.html'
+  $script:snapshotContentFixture = Join-Path $script:repoRoot 'tests/fixtures/snapshot-content-page.html'
   . (Join-Path $script:repoRoot 'lib/common.ps1')
 
   $script:shellPath = (Get-Process -Id $PID).Path
@@ -105,6 +106,82 @@ Describe 'Silmaril Integration Smoke' -Tag 'Integration' {
 
     $query = Invoke-SilmarilJson -CliArgs @('query', '#name', '--fields', 'value', '--limit', '1', '--port', ([string]$port), '--timeout-ms', '5000')
     $query.rows[0].value | Should -Be 'Smoke Input'
+  }
+
+  It 'supports snapshot refs for click type and get-text' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $port = Get-FreeLoopbackPort
+
+    (Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$port), '--timeout-ms', '12000', '--poll-ms', '300')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('openurl', $script:fixture, '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('wait-for', '#go', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+
+    $snapshot = Invoke-SilmarilJson -CliArgs @('snapshot', '--port', ([string]$port), '--timeout-ms', '5000')
+    $snapshot.ok | Should -BeTrue
+
+    $buttonRef = @($snapshot.refs | Where-Object { $_.label -eq 'Go' -and $_.role -eq 'button' } | Select-Object -First 1)[0]
+    $inputRef = @($snapshot.refs | Where-Object { $_.label -eq 'Name' -and $_.role -eq 'textbox' } | Select-Object -First 1)[0]
+    $headingRef = @($snapshot.refs | Where-Object { $_.label -eq 'Smoke Title' -and $_.role -eq 'heading' } | Select-Object -First 1)[0]
+
+    $buttonRef.id | Should -Match '^e\d+$'
+    $inputRef.id | Should -Match '^e\d+$'
+    $headingRef.id | Should -Match '^e\d+$'
+
+    $click = Invoke-SilmarilJson -CliArgs @('click', $buttonRef.id, '--yes', '--port', ([string]$port), '--timeout-ms', '5000')
+    $click.ok | Should -BeTrue
+    $click.resolvedRef.id | Should -Be $buttonRef.id
+    $click.resolvedSelector | Should -Be $buttonRef.selector
+
+    $status = Invoke-SilmarilJson -CliArgs @('get-text', '#status', '--port', ([string]$port), '--timeout-ms', '5000')
+    $status.text | Should -Be 'Clicked'
+
+    $type = Invoke-SilmarilJson -CliArgs @('type', $inputRef.id, 'Smoke Ref Input', '--yes', '--port', ([string]$port), '--timeout-ms', '5000')
+    $type.ok | Should -BeTrue
+    $type.resolvedRef.id | Should -Be $inputRef.id
+    $type.resolvedSelector | Should -Be $inputRef.selector
+
+    $heading = Invoke-SilmarilJson -CliArgs @('get-text', $headingRef.id, '--port', ([string]$port), '--timeout-ms', '5000')
+    $heading.ok | Should -BeTrue
+    $heading.text | Should -Be 'Smoke Title'
+    $heading.resolvedRef.id | Should -Be $headingRef.id
+
+    $query = Invoke-SilmarilJson -CliArgs @('query', '#name', '--fields', 'value', '--limit', '1', '--port', ([string]$port), '--timeout-ms', '5000')
+    $query.rows[0].value | Should -Be 'Smoke Ref Input'
+  }
+
+  It 'supports content-focused snapshots beyond the initial viewport' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $port = Get-FreeLoopbackPort
+
+    (Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$port), '--timeout-ms', '12000', '--poll-ms', '300')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('openurl', $script:snapshotContentFixture, '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('wait-for', 'header', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+
+    $viewportSnapshot = Invoke-SilmarilJson -CliArgs @('snapshot', '--port', ([string]$port), '--timeout-ms', '5000')
+    $viewportSnapshot.ok | Should -BeTrue
+    $viewportSnapshot.coverage | Should -Be 'viewport'
+    $viewportSnapshot.viewportOnly | Should -BeTrue
+    @($viewportSnapshot.refs | Where-Object { $_.label -eq 'Content Focus Title' }).Count | Should -Be 0
+
+    $contentSnapshot = Invoke-SilmarilJson -CliArgs @('snapshot', '--coverage', 'content', '--port', ([string]$port), '--timeout-ms', '5000')
+    $contentSnapshot.ok | Should -BeTrue
+    $contentSnapshot.coverage | Should -Be 'content'
+    $contentSnapshot.viewportOnly | Should -BeFalse
+
+    $contentHeadingRef = @($contentSnapshot.refs | Where-Object { $_.label -eq 'Content Focus Title' -and $_.role -eq 'heading' } | Select-Object -First 1)[0]
+    $contentHeadingRef.id | Should -Match '^e\d+$'
+
+    $heading = Invoke-SilmarilJson -CliArgs @('get-text', $contentHeadingRef.id, '--port', ([string]$port), '--timeout-ms', '5000')
+    $heading.ok | Should -BeTrue
+    $heading.text | Should -Be 'Content Focus Title'
   }
 
   It 'supports openurl-proxy auto-start when MITM is explicitly acknowledged' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {

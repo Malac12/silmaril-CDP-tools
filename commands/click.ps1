@@ -24,7 +24,6 @@ $selectorInput = [string]$RemainingArgs[0]
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
-$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 $confirmClick = $false
 $visualCursor = $false
@@ -52,11 +51,13 @@ if (-not $confirmClick) {
   throw "click requires explicit confirmation flag --yes"
 }
 
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
+$selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+$selector = [string]$selectorResolution.resolvedSelector
 $selectorJs = $selector | ConvertTo-Json -Compress
 $expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); } if (typeof el.focus === 'function') { el.focus(); } el.click(); return { ok: true }; })()"
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
-$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 if ($visualCursor) {
   try {
@@ -81,12 +82,12 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   throw "Click failed for selector: $selectorInput"
 }
 
-Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data @{
+Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{
   selector = $selectorInput
   normalizedSelector = $selector
   visualCursor = $visualCursor
   port     = $port
   targetId = $targetId
   urlMatch = $urlMatch
-} -TargetContext $targetContext)
+} -Resolution $selectorResolution) -TargetContext $targetContext)
 

@@ -24,10 +24,11 @@ $selectorInput = [string]$RemainingArgs[0]
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
-$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $target = $targetContext.Target
+$selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+$selector = [string]$selectorResolution.resolvedSelector
 $value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "visible" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for"
 if ($null -eq $value) {
   throw "wait-for result value is null."
@@ -51,7 +52,7 @@ if (($valueProps -contains "elapsedMs") -and $null -ne $value.elapsedMs) {
   $elapsed = [int]$value.elapsedMs
 }
 
-Write-SilmarilCommandResult -Command "wait-for" -Text "Selector found: $selectorInput ($elapsed ms)" -Data (Add-SilmarilTargetMetadata -Data @{
+Write-SilmarilCommandResult -Command "wait-for" -Text "Selector found: $selectorInput ($elapsed ms)" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{
   selector  = $selectorInput
   normalizedSelector = $selector
   elapsedMs = $elapsed
@@ -60,4 +61,4 @@ Write-SilmarilCommandResult -Command "wait-for" -Text "Selector found: $selector
   pollMs    = $pollMs
   targetId  = $targetId
   urlMatch  = $urlMatch
-} -TargetContext $targetContext) -UseHost
+} -Resolution $selectorResolution) -TargetContext $targetContext) -UseHost

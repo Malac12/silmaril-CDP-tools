@@ -20,6 +20,7 @@ if ($RemainingArgs.Count -ne 0) {
 
 $userDataDir = Get-SilmarilUserDataDir -Port $port
 New-Item -Path $userDataDir -ItemType Directory -Force | Out-Null
+Clear-SilmarilSnapshotState -Port $port | Out-Null
 
 $launchArgs = @(
   "--remote-debugging-port=$port"

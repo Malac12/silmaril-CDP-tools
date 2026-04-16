@@ -16,6 +16,8 @@ If URL input is a local file path, `openUrl` will convert it to a `file:///...` 
 ```powershell
 silmaril.cmd get-currentUrl
 silmaril.cmd list-urls
+silmaril.cmd snapshot
+silmaril.cmd snapshot --coverage content
 silmaril.cmd get-dom
 silmaril.cmd get-dom "#main"
 silmaril.cmd get-text "#title"
@@ -26,6 +28,7 @@ silmaril.cmd get-source
 - `get-dom` reads live DOM.
 - `get-source` reads page source HTML (network/resource source).
 - `query` returns structured rows for selector matches.
+- `snapshot` captures a live DOM map and assigns short refs such as `e1`, `e2`, and `e27`.
 
 ### Choosing Between `get-text`, `get-dom`, and `query`
 
@@ -47,21 +50,73 @@ Practical split:
 - Attributes: `attr:name` (for example `attr:data-test`)
 - Properties: `prop:name`
 
+### Snapshot and Refs
+
+Use `snapshot` when you want a compact, reusable map of the current visible page instead of raw selectors.
+
+Examples:
+
+```powershell
+silmaril.cmd snapshot --json
+silmaril.cmd snapshot --coverage content --json
+silmaril.cmd get-text "e12" --json
+silmaril.cmd click "e27" --yes --json
+silmaril.cmd scroll "e20" --json
+silmaril.cmd scroll --container "e33" --y 400 --json
+```
+
+Practical rules:
+
+- `snapshot` defaults to `viewport` coverage. That mode captures the current visible area, not the entire page.
+- `snapshot --coverage content` stays bounded but prefers content roots such as `main` and reaches further below the fold.
+- On sticky-header or nav-heavy pages, a top-of-page snapshot may mostly contain header refs.
+- For sites like Product Hunt, if the real target is deeper in the page, either scroll the main feed into view first or use `snapshot --coverage content`.
+- Refs are saved per port and current page target.
+- Refs are meant for the latest snapshot only.
+- After page-changing navigation, route transition, or meaningful content replacement, run `snapshot` again before using refs.
+- If the page changed, old refs fail fast with structured errors such as `REF_TARGET_MISMATCH` or `REF_STALE`.
+
+Commands that accept refs instead of CSS selectors:
+
+- `click`
+- `type`
+- `get-text`
+- `get-dom`
+- `exists`
+- `wait-for`
+- `wait-for-gone`
+- `scroll`
+
+`scroll` also accepts a ref in `--container`.
+
 ## 3. Action Commands
 
 ```powershell
 silmaril.cmd click "#submit-btn" --yes
 silmaril.cmd click "#submit-btn" --yes --visual-cursor
+silmaril.cmd click "e27" --yes
 silmaril.cmd type "#search-input" "hello world" --yes
+silmaril.cmd type "e3" "hello world" --yes
 silmaril.cmd type "#search-input" "hello world" --yes --visual-cursor
 silmaril.cmd set-text "#status" "Done" --yes
 silmaril.cmd set-html "#box" "<h3>Updated</h3>" --yes
+silmaril.cmd scroll "#result"
+silmaril.cmd scroll "e20"
+silmaril.cmd scroll --y 800
+silmaril.cmd scroll --container ".messages" --y 400
+silmaril.cmd scroll --container "e33" --y 400
+silmaril.cmd scroll --top 0
 ```
 
 - Mutations and actions require `--yes`.
 - `type` works for `input`, `textarea`, and `contenteditable`.
+- `type` replaces the editable value, then verifies that the final DOM value matches the requested text.
+- `scroll "#selector"` uses `scrollIntoView` with configurable `--behavior`, `--block`, and `--inline`.
+- `scroll --x/--y` scrolls the page by a delta. Add `--container ".selector"` to scroll a nested pane instead.
+- `scroll --left/--top` scrolls the page or container to an absolute position.
 - `--visual-cursor` adds an in-page cursor animation before `click` and `type`.
 - The visual cursor is a temporary page overlay, not the real OS mouse pointer.
+- The selector-taking commands listed in the snapshot section also accept snapshot refs such as `e12`.
 
 ## 4. Wait Commands
 
@@ -284,7 +339,27 @@ Use `--json` at the end when automating:
 silmaril.cmd set-text "#status" --text-file "C:\Users\hangx\status.txt" --yes --json
 ```
 
-## 14. eval-js --file Reliability
+## 14. Page Memory
+
+Use Page Memory to store reusable, verified knowledge about how a page behaves.
+
+Examples:
+
+```powershell
+silmaril.cmd page-memory save --file "C:\path\page-memory.json" --yes
+silmaril.cmd page-memory lookup --json
+silmaril.cmd page-memory verify --id lichess-round-v1 --json
+silmaril.cmd page-memory list --domain lichess.org --json
+silmaril.cmd page-memory invalidate --id lichess-round-v1 --yes --json
+```
+
+Practical rules:
+
+- Store structured facts, selectors, pitfalls, and playbooks, not raw DOM dumps.
+- Treat saved memory as advisory until `page-memory verify` confirms it on the live page.
+- Keep session-specific notes in `recordType: "session"` and reusable page-type knowledge in `recordType: "stable"`.
+
+## 15. eval-js --file Reliability
 
 `eval-js --file` remains the preferred mode for complex JavaScript.
 
@@ -320,7 +395,7 @@ Practical rule:
 - Add `--isolate-scope` when the script declares top-level helpers and may be rerun on the same page.
 - If it still hangs in your page context, fallback to a compact inline expression.
 
-## 15. Multi-Target / New-Tab Discipline
+## 16. Multi-Target / New-Tab Discipline
 
 `openUrl` may create a new CDP page target.
 When that happens, follow up immediately and verify which target is active before continuing.
@@ -334,7 +409,7 @@ Practical rule:
 
 Do not assume subsequent commands still refer to the original page.
 
-## 16. Recommended Recovery Ladder
+## 17. Recommended Recovery Ladder
 
 When automation stalls, use this order:
 
@@ -349,7 +424,7 @@ When automation stalls, use this order:
 
 This keeps troubleshooting bounded and avoids wasting time on inert UI elements.
 
-## 17. Local MITM Overrides
+## 18. Local MITM Overrides
 
 To make page changes persist across refresh, use a local MITM proxy that serves local files for matched URLs.
 
@@ -456,7 +531,7 @@ Notes:
 
 
 
-## 15. Common Target and Timing Flags
+## 19. Common Target and Timing Flags
 
 Many commands now support the same targeting/timing flags:
 
@@ -475,6 +550,7 @@ Targeting rule:
 - Use `target-pin --yes` to make a target the default for a port, `target-show --json` to inspect the current pinned and ephemeral state, and `target-clear --yes` to remove stored target state.
 - `list-urls --json` now includes `targetStateSource`, `pinnedState`, `ephemeralState`, and per-target flags such as `isPinned`, `isEphemeral`, and `isSelected`.
 - Command JSON now includes `resolvedTargetId`, `resolvedUrl`, `resolvedTitle`, `targetSelection`, `targetStateSource`, and `targetActivated` so follow-up automation can audit which page target actually ran and whether Chrome visibly switched to it.
+- Ref-aware command JSON also includes `inputSelectorOrRef`, `resolvedSelector`, and `resolvedRef` when the input came from a snapshot ref.
 
 Examples:
 
@@ -485,7 +561,7 @@ silmaril.cmd target-pin --current --port 9223 --yes --json
 silmaril.cmd target-show --port 9223 --json
 ```
 
-## 16. Declarative Runbook Command
+## 20. Declarative Runbook Command
 
 You can execute a flow file with built-in retries and artifact capture:
 

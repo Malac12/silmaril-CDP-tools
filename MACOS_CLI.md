@@ -45,6 +45,26 @@ chmod +x ./silmaril-mac.sh
 
 The macOS launcher delegates to `silmaril.ps1` through `pwsh` and preserves the existing command names and JSON contracts.
 
+## Common Commands
+
+The macOS launcher supports the same snapshot and ref workflow as the Windows CLI.
+
+Examples:
+
+```bash
+./silmaril-mac.sh snapshot --json
+./silmaril-mac.sh snapshot --coverage content --json
+./silmaril-mac.sh get-text "e12" --json
+./silmaril-mac.sh click "e27" --yes --json
+```
+
+Practical rules:
+
+- `snapshot` defaults to `viewport` coverage and captures what is meaningfully visible in the current viewport.
+- `snapshot --coverage content` stays bounded but prefers richer content roots such as `main` and reaches further below the fold.
+- On sticky-header or nav-heavy pages, either scroll the content you care about into view first or use `snapshot --coverage content`.
+- After page-changing navigation or a meaningful page transition, run `snapshot` again before reusing refs.
+
 ## Smoke Test
 
 Run the bundled mac smoke script from PowerShell 7 on a Mac:
@@ -62,3 +82,4 @@ That smoke flow validates:
 - `list-urls`
 - `set-text`
 - `eval-js`
+

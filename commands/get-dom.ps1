@@ -19,22 +19,26 @@ if ($RemainingArgs.Count -gt 1) {
   throw "get-dom takes zero arguments (full page) or one selector argument. Supported flags: --port, --target-id, --url-match, --timeout-ms"
 }
 
+$selectorInput = $null
 $selector = $null
+$selectorResolution = $null
 $expression = "document.documentElement ? document.documentElement.outerHTML : ''"
 if ($RemainingArgs.Count -eq 1) {
-  $selector = [string]$RemainingArgs[0]
-  if ([string]::IsNullOrWhiteSpace($selector)) {
+  $selectorInput = [string]$RemainingArgs[0]
+  if ([string]::IsNullOrWhiteSpace($selectorInput)) {
     throw "Selector cannot be empty."
   }
+}
 
-  $selector = Normalize-SilmarilSelector -Selector $selector
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
+if (-not [string]::IsNullOrWhiteSpace($selectorInput)) {
+  $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+  $selector = [string]$selectorResolution.resolvedSelector
   $selectorJs = $selector | ConvertTo-Json -Compress
   $expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); return el ? el.outerHTML : null; })()"
 }
 
-$selectorInput = $selector
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
-$target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-dom"
@@ -54,6 +58,10 @@ $resultData = [ordered]@{
 if ($selector) {
   $resultData["selector"] = $selectorInput
   $resultData["normalizedSelector"] = $selector
+}
+
+if ($null -ne $selectorResolution) {
+  $resultData = Add-SilmarilSelectorResolutionMetadata -Data $resultData -Resolution $selectorResolution
 }
 
 Write-SilmarilCommandResult -Command "get-dom" -Text ([string]$value) -Data (Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext)

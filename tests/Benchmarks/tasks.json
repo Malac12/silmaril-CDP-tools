@@ -1,0 +1,364 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "micro_open_wikipedia_home",
+      "tier": "micro",
+      "description": "Open Wikipedia home and wait for the search form.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://www.wikipedia.org/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#searchInput",
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "micro_query_wikipedia_search_form",
+      "tier": "micro",
+      "description": "Read the Wikipedia search form structure.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://www.wikipedia.org/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#searchInput",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "query",
+          "selector": "#searchInput,button[type=\"submit\"]",
+          "fields": ["tag", "attr:name", "attr:type", "visible"],
+          "limit": 4,
+          "expect": {
+            "returnedCountAtLeast": 2,
+            "firstRow": {
+              "tag": "input",
+              "attr:name": "search",
+              "attr:type": "search",
+              "visible": true
+            }
+          },
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "micro_type_wikipedia_search",
+      "tier": "micro",
+      "description": "Type into the Wikipedia search field and verify the value.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://www.wikipedia.org/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#searchInput",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "type",
+          "selector": "#searchInput",
+          "text": "Pizza",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "query",
+          "selector": "#searchInput",
+          "fields": ["value", "prop:value", "visible"],
+          "limit": 1,
+          "expect": {
+            "returnedCountAtLeast": 1,
+            "firstRow": {
+              "value": "Pizza",
+              "prop:value": "Pizza",
+              "visible": true
+            }
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "micro_click_wikipedia_english",
+      "tier": "micro",
+      "description": "Click the English Wikipedia entry point and verify navigation.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://www.wikipedia.org/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#js-link-box-en",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "click",
+          "selector": "#js-link-box-en",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitUntilJs",
+          "expression": "location.host === 'en.wikipedia.org'",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#searchInput",
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "micro_wait_dynamic_loading",
+      "tier": "micro",
+      "description": "Trigger async content and wait until the final message appears.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://the-internet.herokuapp.com/dynamic_loading/2",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#start button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "#start button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitUntilJs",
+          "expression": "document.querySelector('#finish') && document.querySelector('#finish').innerText.includes('Hello World!') && document.querySelector('#loading') && document.querySelector('#loading').offsetParent === null",
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "flow_internet_login",
+      "tier": "flow",
+      "description": "Run the public demo login flow on the-internet.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://the-internet.herokuapp.com/login",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#username",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "type",
+          "selector": "#username",
+          "text": "tomsmith",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "type",
+          "selector": "#password",
+          "text": "SuperSecretPassword!",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "button[type=\"submit\"]",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitUntilJs",
+          "expression": "location.href.includes('/secure')",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertTextIncludes",
+          "selector": "#flash",
+          "includes": "You logged into a secure area!",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "flow_dynamic_controls",
+      "tier": "flow",
+      "description": "Exercise remove/add checkbox and enable input on dynamic controls.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://the-internet.herokuapp.com/dynamic_controls",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#checkbox",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "#checkbox-example button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitForGone",
+          "selector": "#checkbox",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertTextIncludes",
+          "selector": "#message",
+          "includes": "It's gone!",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "#checkbox-example button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#checkbox",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertTextIncludes",
+          "selector": "#message",
+          "includes": "It's back!",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "#input-example button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitUntilJs",
+          "expression": "document.querySelector('#input-example input') && !document.querySelector('#input-example input').disabled",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertTextIncludes",
+          "selector": "#message",
+          "includes": "It's enabled!",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "type",
+          "selector": "#input-example input",
+          "text": "silmaril benchmark",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "query",
+          "selector": "#input-example input",
+          "fields": ["value", "prop:value", "visible"],
+          "limit": 1,
+          "expect": {
+            "returnedCountAtLeast": 1,
+            "firstRow": {
+              "value": "silmaril benchmark",
+              "prop:value": "silmaril benchmark",
+              "visible": true
+            }
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "flow_dynamic_loading",
+      "tier": "flow",
+      "description": "Run the async loading flow and verify the final text.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://the-internet.herokuapp.com/dynamic_loading/2",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#start button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "#start button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitUntilJs",
+          "expression": "document.querySelector('#finish') && document.querySelector('#finish').innerText.includes('Hello World!') && document.querySelector('#loading') && document.querySelector('#loading').offsetParent === null",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "assertTextIncludes",
+          "selector": "#finish",
+          "includes": "Hello World!",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "flow_wikipedia_search",
+      "tier": "flow",
+      "description": "Run a real Wikipedia search flow end to end.",
+      "steps": [
+        {
+          "type": "navigate",
+          "url": "https://en.wikipedia.org/wiki/Main_Page",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "waitFor",
+          "selector": "#searchInput",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "type",
+          "selector": "#searchInput",
+          "text": "Pizza",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "selector": "#searchform button.cdx-search-input__end-button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitUntilJs",
+          "expression": "location.href.toLowerCase().includes('/wiki/pizza')",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "assertTextIncludes",
+          "selector": "h1",
+          "includes": "Pizza",
+          "timeoutMs": 15000
+        }
+      ]
+    }
+  ]
+}

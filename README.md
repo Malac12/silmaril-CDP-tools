@@ -27,6 +27,7 @@ Silmaril provides a local command layer over Chrome DevTools Protocol workflows,
 - opening or attaching to a browser with CDP enabled
 - navigating to pages
 - reading DOM, text, and source
+- capturing viewport snapshots with stable element refs such as `e1`, `e2`, `e3`
 - querying structured page data
 - clicking, typing, and updating page content
 - waiting on browser state changes
@@ -36,6 +37,7 @@ It also includes:
 
 - a Codex / Claude skill install path
 - JSON-friendly command output for agent workflows
+- local page memory for reusable selectors, pitfalls, and playbooks
 
 ## Quick Start
 
@@ -56,6 +58,45 @@ curl -fsSL https://raw.githubusercontent.com/Malac12/silmaril-CDP-tools/main/ins
 - Skill install: [INSTALL_SKILL.md](INSTALL_SKILL.md)
 - Command guide: [COMMAND_GUIDE.md](COMMAND_GUIDE.md)
 - macOS CLI: [MACOS_CLI.md](MACOS_CLI.md)
+
+## Page Memory
+
+Silmaril can store reusable page-specific knowledge locally so agents do not have to rediscover the same page behavior from scratch.
+
+Examples:
+
+```powershell
+silmaril.cmd page-memory save --file "C:\path\record.json" --yes
+silmaril.cmd page-memory lookup --json
+silmaril.cmd page-memory verify --id lichess-round-v1 --json
+silmaril.cmd page-memory list --json
+```
+
+This is intended for verified selectors, affordances, pitfalls, and playbooks, not raw DOM snapshots.
+
+## Snapshot Refs
+
+Silmaril can also capture a lightweight live page snapshot and assign short ref ids such as `e1`, `e2`, and `e27`.
+
+Examples:
+
+```powershell
+silmaril.cmd snapshot --json
+silmaril.cmd snapshot --coverage content --json
+silmaril.cmd get-text "e12" --json
+silmaril.cmd click "e27" --yes --json
+silmaril.cmd scroll "e20" --json
+```
+
+Practical rules:
+
+- `snapshot` defaults to `viewport` coverage. That mode captures what is meaningfully visible in the current viewport, not the entire page.
+- `snapshot --coverage content` keeps the snapshot bounded but prefers richer content roots such as `main` and reaches further below the fold.
+- On sticky-header or nav-heavy pages, a top-of-page snapshot may mostly contain header refs.
+- If you want refs for deeper content such as a main feed, either scroll that content into view first or use `snapshot --coverage content`.
+- Refs are for the latest snapshot on the current page target and port.
+- After page-changing navigation or a meaningful page transition, run `snapshot` again before reusing refs.
+- Ref-aware commands currently include `click`, `type`, `get-text`, `get-dom`, `exists`, `wait-for`, `wait-for-gone`, and `scroll`.
 
 ## Positioning
 

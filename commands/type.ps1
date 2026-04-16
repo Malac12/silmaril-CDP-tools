@@ -24,7 +24,6 @@ $selectorInput = [string]$RemainingArgs[0]
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
-$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 $confirmType = $false
 $visualCursor = $false
@@ -108,12 +107,134 @@ else {
   $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($textValue)
 }
 
-$selectorJs = $selector | ConvertTo-Json -Compress
-$textJs = $textValue | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; var txt = $textJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; var tag = (el.tagName || '').toLowerCase(); var isEditable = !!el.isContentEditable || tag === 'input' || tag === 'textarea'; if (!isEditable) return { ok: false, reason: 'not_editable' }; if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); } if (typeof el.focus === 'function') { el.focus(); } if ('value' in el) { el.value = txt; if (typeof el.setSelectionRange === 'function') { try { var n = el.value.length; el.setSelectionRange(n, n); } catch (_) {} } } else { el.textContent = txt; } el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true }; })()"
-
 $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $target = $targetContext.Target
+$selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+$selector = [string]$selectorResolution.resolvedSelector
+$selectorJs = $selector | ConvertTo-Json -Compress
+$textJs = $textValue | ConvertTo-Json -Compress
+$expression = @"
+(async function(){
+  var sel = $selectorJs;
+  var txt = $textJs;
+  var el = document.querySelector(sel);
+  if (!el) return { ok: false, reason: 'not_found' };
+  var tag = (el.tagName || '').toLowerCase();
+  var isEditable = !!el.isContentEditable || tag === 'input' || tag === 'textarea';
+  if (!isEditable) return { ok: false, reason: 'not_editable' };
+  if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); }
+  if (typeof el.focus === 'function') { el.focus(); }
+  var previousValue = ('value' in el) ? String(el.value || '') : String(el.textContent || '');
+
+  var waitForDomFlush = async function(){
+    try {
+      await Promise.resolve();
+      await new Promise(function(resolve){
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function(){ resolve(); });
+          return;
+        }
+        setTimeout(resolve, 0);
+      });
+    } catch (_) {}
+  };
+
+  var dispatchEditableEvent = function(name, inputType){
+    try {
+      if (typeof window.InputEvent === 'function' && (name === 'beforeinput' || name === 'input')) {
+        el.dispatchEvent(new InputEvent(name, {
+          bubbles: true,
+          composed: true,
+          cancelable: name === 'beforeinput',
+          data: txt,
+          inputType: inputType
+        }));
+        return;
+      }
+    } catch (_) {}
+    el.dispatchEvent(new Event(name, { bubbles: true, composed: true }));
+  };
+
+  var setNativeValue = function(node, nextValue){
+    if (!('value' in node)) {
+      return false;
+    }
+
+    var prototypeChain = [];
+    if (tag === 'input' && window.HTMLInputElement && window.HTMLInputElement.prototype) {
+      prototypeChain.push(window.HTMLInputElement.prototype);
+    }
+    if (tag === 'textarea' && window.HTMLTextAreaElement && window.HTMLTextAreaElement.prototype) {
+      prototypeChain.push(window.HTMLTextAreaElement.prototype);
+    }
+
+    var cursor = Object.getPrototypeOf(node);
+    while (cursor) {
+      prototypeChain.push(cursor);
+      cursor = Object.getPrototypeOf(cursor);
+    }
+
+    for (var i = 0; i < prototypeChain.length; i++) {
+      var proto = prototypeChain[i];
+      if (!proto) continue;
+      try {
+        var descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (descriptor && typeof descriptor.set === 'function') {
+          descriptor.set.call(node, nextValue);
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    try {
+      node.value = nextValue;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  var inputType = previousValue.length > 0 ? 'insertReplacementText' : 'insertText';
+  dispatchEditableEvent('beforeinput', inputType);
+
+  if ('value' in el) {
+    if (!setNativeValue(el, txt)) {
+      return { ok: false, reason: 'not_editable' };
+    }
+    if (typeof el.setSelectionRange === 'function') {
+      try {
+        var n = el.value.length;
+        el.setSelectionRange(n, n);
+      } catch (_) {}
+    }
+  } else {
+    el.textContent = txt;
+  }
+
+  dispatchEditableEvent('input', inputType);
+  dispatchEditableEvent('change');
+  await waitForDomFlush();
+
+  var finalValue = ('value' in el) ? String(el.value || '') : String(el.textContent || '');
+  if (finalValue !== txt) {
+    return {
+      ok: false,
+      reason: 'value_mismatch',
+      expected: txt,
+      actual: finalValue,
+      previousValue: previousValue
+    };
+  }
+
+  return {
+    ok: true,
+    previousValue: previousValue,
+    value: finalValue,
+    inputType: inputType
+  };
+})()
+"@
+
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 if ($visualCursor) {
   try {
@@ -137,6 +258,11 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_editable") {
     throw "Element is not editable for selector: $selectorInput"
   }
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "value_mismatch") {
+    $expectedText = if ($valueProps -contains "expected") { [string]$value.expected } else { $textValue }
+    $actualText = if ($valueProps -contains "actual") { [string]$value.actual } else { "" }
+    throw ("Typed value did not stick for selector: {0}. Expected '{1}' but found '{2}'." -f $selectorInput, $expectedText, $actualText)
+  }
 
   throw "type failed for selector: $selectorInput"
 }
@@ -152,9 +278,19 @@ $data = [ordered]@{
   urlMatch    = $urlMatch
 }
 
+if ($valueProps -contains "previousValue") {
+  $data["previousValue"] = [string]$value.previousValue
+}
+if ($valueProps -contains "value") {
+  $data["value"] = [string]$value.value
+}
+if ($valueProps -contains "inputType") {
+  $data["inputType"] = [string]$value.inputType
+}
+
 if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
   $data["filePath"] = $filePath
 }
 
-Write-SilmarilCommandResult -Command "type" -Text "Typed into selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data $data -TargetContext $targetContext) -UseHost
+Write-SilmarilCommandResult -Command "type" -Text "Typed into selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data $data -Resolution $selectorResolution) -TargetContext $targetContext) -UseHost
 

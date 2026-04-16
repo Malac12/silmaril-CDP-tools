@@ -54,17 +54,35 @@ On macOS, use the shell launcher:
 1. Check for an existing CDP browser session first with a lightweight command such as `get-currentUrl --json`.
 2. If the session check succeeds, reuse that browser instead of opening a new one.
 3. If the session check returns `CDP_UNAVAILABLE` or another no-browser signal, start a CDP browser with `openbrowser --json`, then recheck once with `get-currentUrl --json`.
-4. Navigate with `openUrl`.
-5. Read page state with `exists`, `get-text`, `query`, or `get-dom`.
-6. Mutate only after validating selectors.
-7. Wait on one clear synchronization signal after each action.
-8. Prefer `run` for short repeatable flows.
+4. After attaching to the page you plan to use, check `page-memory lookup --json` early when the page might be a revisit, an app-like UI, or a workflow with non-obvious selectors or pitfalls.
+5. If page memory returns a strong match, treat it as the default starting point for selectors, playbooks, and known failure modes.
+6. Navigate with `openUrl` when needed.
+7. If you want ref-based interaction, run `snapshot --json` for visible-page refs or `snapshot --coverage content --json` for a richer content-focused map.
+8. Read page state with `exists`, `get-text`, `query`, `get-dom`, or snapshot refs.
+9. Mutate only after validating selectors or capturing a fresh snapshot.
+10. Wait on one clear synchronization signal after each action.
+11. Prefer `run` for short repeatable flows.
+
+## Page Memory First
+
+Page Memory is one of the highest-leverage parts of Silmaril. Use it early instead of treating it as an optional extra.
+
+- Run `page-memory lookup --json` near the start of work when you are revisiting a site, working inside a web app, or dealing with a UI that may have non-obvious selectors, affordances, or pitfalls.
+- If lookup returns a recommended or strong match, prefer its selectors and playbooks over rediscovering the page from scratch.
+- Use `page-memory verify --id <memoryId> --json` before trusting a saved record on a live page when the workflow matters or the page may have changed.
+- When you discover stable selectors, repeatable playbooks, or important pitfalls that would help later runs, consider saving them back into page memory rather than leaving them as one-off chat knowledge.
+- Treat page memory as advisory but high-value: verify it when needed, but bias toward using it rather than ignoring it.
 
 ## Operating rules
 
 - Prefer `--json` for almost every command so later steps can parse structured output.
 - Do not launch a fresh browser blindly. Always check whether a CDP session is already available first, and only call `openbrowser` when no session is reachable.
+- Prefer `page-memory lookup --json` early on revisited pages or app-like workflows before spending time rediscovering selectors and behaviors manually.
 - Prefer live DOM commands over `get-source` when choosing selectors or checking rendered state.
+- Use `snapshot --json` when you want a compact map of the current visible page with reusable refs such as `e1`, `e2`, and `e27`.
+- `snapshot` defaults to `viewport` coverage. If the useful content is below a sticky header or top nav, either scroll that content into view first or use `snapshot --coverage content`.
+- `snapshot --coverage content` keeps the snapshot bounded but prefers richer content roots such as `main` and reaches further below the fold.
+- Treat refs as short-lived. After page-changing navigation or a meaningful content transition, rerun `snapshot` before using refs again.
 - Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
 - Use either `--target-id` or `--url-match` when multiple tabs exist; never use both together.
 - Use `target-show`, `target-pin --yes`, and `target-clear --yes` to manage persistent target selection instead of depending on tab order.
@@ -83,8 +101,24 @@ On macOS, use the shell launcher:
 - Use `get-text` for a single text value.
 - Use `query` for structured multi-row extraction.
 - Use `get-dom` to debug selector or markup issues.
+- Use `snapshot` when a balanced page map plus short refs is more useful than raw selectors.
 - Use `get-source` only when raw response HTML matters more than the rendered DOM.
 - Use `wait-for`, `wait-for-any`, `wait-for-gone`, `wait-until-js`, or `wait-for-mutation` to synchronize.
+- Use `page-memory lookup --json` early when revisiting a page/app and reusable selectors, pitfalls, or playbooks might already be stored.
+- Use `page-memory verify --id <memoryId> --json` before trusting saved memory on a live page.
+
+Ref-aware selector commands:
+
+- `click`
+- `type`
+- `get-text`
+- `get-dom`
+- `exists`
+- `wait-for`
+- `wait-for-gone`
+- `scroll`
+
+`scroll --container` also accepts a ref.
 
 ## References
 

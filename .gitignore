@@ -3,3 +3,4 @@ bridge-app/dist/
 bridge-app/out/
 bridge-app/.vite/
 bridge-app/electron-*.zip
+tests/Benchmarks/results/

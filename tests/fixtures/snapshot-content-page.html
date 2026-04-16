@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Silmaril Snapshot Content</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      color: #111827;
+      background: #f8fafc;
+    }
+
+    header {
+      position: fixed;
+      inset: 0 0 auto 0;
+      height: 88px;
+      background: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      box-sizing: border-box;
+      z-index: 20;
+    }
+
+    nav {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    nav a,
+    nav button {
+      color: inherit;
+      background: transparent;
+      border: 0;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .hero-spacer {
+      height: 1900px;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.06), rgba(15, 23, 42, 0)),
+        linear-gradient(135deg, #e0f2fe, #f8fafc 55%);
+    }
+
+    main {
+      padding: 32px 24px 96px;
+      max-width: 760px;
+    }
+
+    .card {
+      margin-top: 24px;
+      padding: 24px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 10px;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Silmaril Header</strong>
+    <nav aria-label="Header Navigation">
+      <a href="#home">Home</a>
+      <a href="#about">About</a>
+      <button id="sign-in">Sign in</button>
+    </nav>
+  </header>
+
+  <div class="hero-spacer" aria-hidden="true"></div>
+
+  <main id="content-feed">
+    <div class="card">
+      <span class="eyebrow">Below the fold</span>
+      <h1 id="content-title">Content Focus Title</h1>
+      <p id="content-summary">This content block starts below the initial viewport and should appear in content-focused snapshots without needing a manual scroll.</p>
+      <button id="content-action">Open Product</button>
+    </div>
+  </main>
+</body>
+</html>

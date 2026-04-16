@@ -1,0 +1,82 @@
+{
+  "recordType": "stable",
+  "id": "lichess-round-v1",
+  "profile": {
+    "scope": "page_type",
+    "domain": "lichess.org",
+    "pathPattern": "^/[A-Za-z0-9]{8}$",
+    "titlePattern": "lichess\\.org",
+    "requiredMarkers": [
+      "body.playing"
+    ],
+    "excludedMarkers": [],
+    "exactUrl": ""
+  },
+  "summary": "For Lichess round pages, prefer blind mode and the move input over DOM click for moving pieces.",
+  "selectors": [
+    {
+      "name": "standard_board",
+      "selector": "cg-board",
+      "purpose": "standard rendered chessboard",
+      "confidence": 0.98
+    },
+    {
+      "name": "blind_mode_toggle",
+      "selector": "#nvui-button",
+      "purpose": "enable blind mode",
+      "confidence": 0.99
+    },
+    {
+      "name": "move_input",
+      "selector": "input[name='move']",
+      "purpose": "blind-mode move input",
+      "confidence": 0.99
+    }
+  ],
+  "facts": [
+    {
+      "id": "board_uses_cg_board",
+      "statement": "The standard Lichess round board is rendered with cg-board.",
+      "confidence": 0.98,
+      "evidence": {
+        "method": "get-dom",
+        "selector": "cg-board"
+      }
+    }
+  ],
+  "pitfalls": [
+    {
+      "id": "dom_click_unreliable_for_piece_movement",
+      "statement": "DOM-level el.click() is not reliable for moving pieces on the standard board.",
+      "confidence": 0.95,
+      "evidence": {
+        "method": "attempted_interaction",
+        "result": "board state unchanged"
+      }
+    }
+  ],
+  "playbooks": [
+    {
+      "id": "submit_move_via_blind_mode",
+      "goal": "play_move",
+      "preconditions": [
+        "Lichess round page is active"
+      ],
+      "steps": [
+        "Click #nvui-button",
+        "Wait for .nvui",
+        "Type notation into input[name='move']",
+        "Submit #move-form",
+        "Verify .moves changed"
+      ],
+      "confidence": 0.98
+    }
+  ],
+  "verification": {
+    "selectors": [
+      "#nvui-button",
+      "cg-board"
+    ]
+  },
+  "confidence": 0.96
+}

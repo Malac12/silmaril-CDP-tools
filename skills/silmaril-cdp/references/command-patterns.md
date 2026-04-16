@@ -13,21 +13,55 @@ If the checkout is not present at that path, resolve `silmaril.cmd` from `PATH` 
 
 ## Read patterns
 
+- Visible-page snapshot with refs: `snapshot --json`
+- Content-focused snapshot with refs: `snapshot --coverage content --json`
 - Single assertion: `get-text '#title' --json`
+- Single assertion by ref: `get-text 'e12' --json`
 - Presence check: `exists '[data-test="submit"]' --json`
 - Structured extraction: `query 'a[href]' --fields 'text,href,attr:data-test' --limit 20 --json`
 - Debug markup: `get-dom '#main' --json`
+- Reuse prior knowledge early: `page-memory lookup --json`
 
 Prefer `query` when later steps need rows or machine-readable fields.
+
+Practical rule:
+
+- On revisited sites and app-like pages, check `page-memory lookup --json` before doing manual selector discovery unless the task is obviously trivial.
+- Use `snapshot --json` when you want a compact map of the current visible page and short refs instead of hand-picked selectors.
+- `snapshot` defaults to `viewport` coverage.
+- On sticky-header or top-nav-heavy pages, either scroll the content you care about into view first or use `snapshot --coverage content`.
+- `snapshot --coverage content` stays bounded but prefers richer content roots such as `main` and reaches further below the fold.
+- After page-changing navigation or a major content transition, rerun `snapshot` before reusing refs.
+
+## Page Memory patterns
+
+- Save a reusable record: `page-memory save --file 'C:\path\record.json' --yes --json`
+- Verify a saved record on the current page: `page-memory verify --id 'memory-id' --json`
+- List saved records: `page-memory list --json`
 
 ## Action patterns
 
 - Click: `click '#submit' --yes --json`
+- Click by ref: `click 'e27' --yes --json`
 - Type: `type '#search' 'hello world' --yes --json`
+- Type by ref: `type 'e3' 'hello world' --yes --json`
 - Replace text: `set-text '#status' 'Done' --yes --json`
 - Replace HTML: `set-html '#box' '<h3>Updated</h3>' --yes --json`
+- Scroll by ref: `scroll 'e20' --json`
+- Scroll a container by ref: `scroll --container 'e33' --y 400 --json`
 
 Validate the selector first with `exists`, `get-text`, or `query`.
+
+Ref-aware commands currently include:
+
+- `click`
+- `type`
+- `get-text`
+- `get-dom`
+- `exists`
+- `wait-for`
+- `wait-for-gone`
+- `scroll`
 
 ## Wait patterns
 

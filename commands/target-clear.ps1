@@ -37,11 +37,13 @@ if ($RemainingArgs.Count -ne 0) {
 }
 
 $removed = Clear-SilmarilTargetState -Port $port -Kind "all"
+$removedSnapshot = Clear-SilmarilSnapshotState -Port $port
 $data = [ordered]@{
   port              = $port
   removedEphemeral  = [bool]$removed.ephemeral
   removedPinned     = [bool]$removed.pinned
   removedLegacy     = [bool]$removed.legacy
+  removedSnapshot   = [bool]$removedSnapshot
 }
 
 Write-SilmarilCommandResult -Command "target-clear" -Text "Cleared target state." -Data $data -UseHost

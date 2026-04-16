@@ -27,6 +27,7 @@ function Show-Usage {
   Write-Host "  $cliName target-clear --yes [--port n] [--json]"
   Write-Host "  $cliName get-currentUrl [--port n] [--json]"
   Write-Host "  $cliName list-urls [--port n] [--json]"
+  Write-Host "  $cliName snapshot [--coverage viewport|content] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName get-dom [\"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName get-text \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
@@ -35,6 +36,7 @@ function Show-Usage {
   Write-Host "  $cliName set-text \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName type \"selector\" (\"text\" | --text-file \"path\") --yes [--visual-cursor] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName click \"selector\" --yes [--visual-cursor] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName scroll [\"selector\"] [--container \"selector\"] [--x n --y n | --left n --top n] [--behavior auto|smooth] [--block start|center|end|nearest] [--inline start|center|end|nearest] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName wait-for \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  $cliName wait-for-any \"selector1\" \"selector2\" [\"selectorN\"...] [--counts] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  $cliName wait-for-gone \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
@@ -46,6 +48,11 @@ function Show-Usage {
   Write-Host "  $cliName proxy-switch --match \"url-regex\" --original-file \"path\" --saved-file \"path\" --use (original|saved) --allow-mitm --yes [--status code] [--content-type \"mime\"] [--rules-file \"path\"] [--json]"
   Write-Host "  $cliName get-source [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName run \"flow.json\" [--artifacts-dir \"path\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName page-memory lookup [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName page-memory save --file \"path\" --yes [--json]"
+  Write-Host "  $cliName page-memory verify --id memory-id [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName page-memory list [--domain domain] [--include-invalidated] [--json]"
+  Write-Host "  $cliName page-memory invalidate --id memory-id --yes [--json]"
 }
 
 function Invoke-CommandScript {
@@ -125,6 +132,7 @@ try {
     "target-clear" { Invoke-CommandScript -CommandName "target-clear" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-currenturl" { Invoke-CommandScript -CommandName "get-currenturl" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "list-urls" { Invoke-CommandScript -CommandName "list-urls" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "snapshot" { Invoke-CommandScript -CommandName "snapshot" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-dom" { Invoke-CommandScript -CommandName "get-dom" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-text" { Invoke-CommandScript -CommandName "get-text" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "query" { Invoke-CommandScript -CommandName "query" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
@@ -133,6 +141,7 @@ try {
     "set-text" { Invoke-CommandScript -CommandName "set-text" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "type" { Invoke-CommandScript -CommandName "type" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "click" { Invoke-CommandScript -CommandName "click" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "scroll" { Invoke-CommandScript -CommandName "scroll" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-for" { Invoke-CommandScript -CommandName "wait-for" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-for-any" { Invoke-CommandScript -CommandName "wait-for-any" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-for-gone" { Invoke-CommandScript -CommandName "wait-for-gone" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
@@ -143,6 +152,7 @@ try {
     "proxy-switch" { Invoke-CommandScript -CommandName "proxy-switch" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-source" { Invoke-CommandScript -CommandName "get-source" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "run" { Invoke-CommandScript -CommandName "run" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "page-memory" { Invoke-CommandScript -CommandName "page-memory" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     default {
       if (-not $jsonOutput) {
         Show-Usage

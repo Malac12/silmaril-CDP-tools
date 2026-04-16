@@ -1067,6 +1067,365 @@ function Get-SilmarilAllTargetStates {
   }
 }
 
+function Get-SilmarilSnapshotStatePath {
+  param(
+    [int]$Port = 9222
+  )
+
+  return (Join-Path -Path (Get-SilmarilStateRoot) -ChildPath ("snapshot-state-" + [string]$Port + ".json"))
+}
+
+function Get-SilmarilSnapshotState {
+  param(
+    [int]$Port = 9222
+  )
+
+  $path = Get-SilmarilSnapshotStatePath -Port $Port
+  if (-not (Test-Path -LiteralPath $path)) {
+    return $null
+  }
+
+  try {
+    $raw = Get-Content -LiteralPath $path -Raw -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+      return $null
+    }
+
+    return ($raw | ConvertFrom-Json)
+  }
+  catch {
+    return $null
+  }
+}
+
+function Save-SilmarilSnapshotState {
+  param(
+    [int]$Port = 9222,
+    [hashtable]$State
+  )
+
+  if ($null -eq $State) {
+    return
+  }
+
+  $path = Get-SilmarilSnapshotStatePath -Port $Port
+  $parent = Split-Path -Parent $path
+  try {
+    if (-not (Test-Path -LiteralPath $parent)) {
+      New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+
+    Set-Content -LiteralPath $path -Encoding UTF8 -Value ($State | ConvertTo-Json -Compress -Depth 30)
+  }
+  catch {
+    # Snapshot state is best-effort and should not fail command paths.
+  }
+}
+
+function Clear-SilmarilSnapshotState {
+  param(
+    [int]$Port = 9222
+  )
+
+  $path = Get-SilmarilSnapshotStatePath -Port $Port
+  if (-not (Test-Path -LiteralPath $path)) {
+    return $false
+  }
+
+  Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+  return (-not (Test-Path -LiteralPath $path))
+}
+
+function Test-SilmarilSnapshotRefId {
+  param(
+    [string]$Value
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Value)) {
+    return $false
+  }
+
+  return ([regex]::IsMatch($Value.Trim(), '^e\d+$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase))
+}
+
+function Test-SilmarilSnapshotRefMatch {
+  param(
+    [psobject]$Target,
+    [psobject]$RefEntry,
+    [int]$TimeoutSec = 10
+  )
+
+  if ($null -eq $Target) {
+    throw "Target is required to validate snapshot refs."
+  }
+  if ($null -eq $RefEntry) {
+    throw "Ref entry is required to validate snapshot refs."
+  }
+
+  $selector = [string]$RefEntry.selector
+  if ([string]::IsNullOrWhiteSpace($selector)) {
+    throw "Snapshot ref entry is missing selector."
+  }
+
+  $selectorJs = $selector | ConvertTo-Json -Compress
+  $expectedTagJs = ([string]$RefEntry.tag) | ConvertTo-Json -Compress
+  $expectedRoleJs = ([string]$RefEntry.role) | ConvertTo-Json -Compress
+  $expectedLabelJs = ([string]$RefEntry.label) | ConvertTo-Json -Compress
+  $expression = @"
+(function(){
+  var selector = $selectorJs;
+  var expectedTag = $expectedTagJs;
+  var expectedRole = $expectedRoleJs;
+  var expectedLabel = $expectedLabelJs;
+
+  var clean = function(value){
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  };
+
+  var getRole = function(el){
+    if (!el) return '';
+    var explicitRole = clean(el.getAttribute && el.getAttribute('role'));
+    if (explicitRole) return explicitRole.toLowerCase();
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'a' && el.hasAttribute('href')) return 'link';
+    if (tag === 'button') return 'button';
+    if (tag === 'input') {
+      var type = clean(el.getAttribute('type') || 'text').toLowerCase();
+      if (type === 'button' || type === 'submit' || type === 'reset') return 'button';
+      if (type === 'checkbox') return 'checkbox';
+      if (type === 'radio') return 'radio';
+      return 'textbox';
+    }
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'select') return 'combobox';
+    if (/^h[1-6]$/.test(tag)) return 'heading';
+    if (tag === 'main') return 'main';
+    if (tag === 'nav') return 'navigation';
+    if (tag === 'header') return 'banner';
+    if (tag === 'aside') return 'complementary';
+    if (tag === 'footer') return 'contentinfo';
+    if (tag === 'form') return 'form';
+    if (tag === 'dialog') return 'dialog';
+    return '';
+  };
+
+  var getLabel = function(el){
+    if (!el) return '';
+    var ariaLabel = clean(el.getAttribute && el.getAttribute('aria-label'));
+    if (ariaLabel) return ariaLabel;
+    var labelledBy = clean(el.getAttribute && el.getAttribute('aria-labelledby'));
+    if (labelledBy) {
+      var parts = labelledBy.split(/\s+/).map(function(id){
+        var ref = document.getElementById(id);
+        return clean(ref ? (ref.innerText || ref.textContent) : '');
+      }).filter(Boolean);
+      if (parts.length > 0) return clean(parts.join(' '));
+    }
+    if (typeof el.labels !== 'undefined' && el.labels && el.labels.length > 0) {
+      var labelParts = Array.from(el.labels).map(function(labelEl){
+        return clean(labelEl.innerText || labelEl.textContent);
+      }).filter(Boolean);
+      if (labelParts.length > 0) return clean(labelParts.join(' '));
+    }
+    var alt = clean(el.getAttribute && el.getAttribute('alt'));
+    if (alt) return alt;
+    var placeholder = clean(el.getAttribute && el.getAttribute('placeholder'));
+    if (placeholder) return placeholder;
+    var title = clean(el.getAttribute && el.getAttribute('title'));
+    if (title) return title;
+    var inner = clean(typeof el.innerText === 'string' ? el.innerText : el.textContent);
+    return inner;
+  };
+
+  var el = document.querySelector(selector);
+  if (!el) {
+    return { ok: false, reason: 'not_found', selector: selector };
+  }
+
+  var actualTag = clean(el.tagName).toLowerCase();
+  var actualRole = getRole(el);
+  var actualLabel = getLabel(el);
+
+  if (expectedTag && expectedTag.toLowerCase() !== actualTag) {
+    return { ok: false, reason: 'tag_mismatch', selector: selector, actualTag: actualTag, actualRole: actualRole, actualLabel: actualLabel };
+  }
+
+  if (expectedRole && expectedRole.toLowerCase() !== actualRole) {
+    return { ok: false, reason: 'role_mismatch', selector: selector, actualTag: actualTag, actualRole: actualRole, actualLabel: actualLabel };
+  }
+
+  if (expectedLabel && expectedLabel !== actualLabel) {
+    return { ok: false, reason: 'label_mismatch', selector: selector, actualTag: actualTag, actualRole: actualRole, actualLabel: actualLabel };
+  }
+
+  return {
+    ok: true,
+    selector: selector,
+    actualTag: actualTag,
+    actualRole: actualRole,
+    actualLabel: actualLabel
+  };
+})()
+"@
+
+  $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $TimeoutSec
+  return Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "snapshot-ref"
+}
+
+function Resolve-SilmarilSelectorInput {
+  param(
+    [string]$InputValue,
+    [int]$Port = 9222,
+    [object]$TargetContext,
+    [int]$TimeoutMs = 10000
+  )
+
+  if ([string]::IsNullOrWhiteSpace($InputValue)) {
+    throw "Selector cannot be empty."
+  }
+
+  $rawInput = [string]$InputValue
+  if (-not (Test-SilmarilSnapshotRefId -Value $rawInput)) {
+    $normalizedSelector = Normalize-SilmarilSelector -Selector $rawInput
+    return [ordered]@{
+      inputSelectorOrRef = $rawInput
+      selector           = $rawInput
+      normalizedSelector = $normalizedSelector
+      resolvedSelector   = $normalizedSelector
+      isRef              = $false
+      resolvedRef        = $null
+    }
+  }
+
+  if ($null -eq $TargetContext) {
+    throw "Target context is required when resolving snapshot refs."
+  }
+
+  $snapshotState = Get-SilmarilSnapshotState -Port $Port
+  if ($null -eq $snapshotState) {
+    throw (New-SilmarilStructuredErrorMessage -Payload ([ordered]@{
+      code    = "SNAPSHOT_NOT_FOUND"
+      message = "No snapshot state exists for port $Port."
+      hint    = "Run $(Get-SilmarilCliName) snapshot before using ref $rawInput."
+      refId   = $rawInput
+      port    = $Port
+    }))
+  }
+
+  $snapshotTargetId = [string]$snapshotState.target.id
+  $snapshotComparableUrl = [string]$snapshotState.target.comparableUrl
+  $currentComparableUrl = Get-SilmarilComparableUrl -Url ([string]$TargetContext.ResolvedUrl)
+  if (
+    (-not [string]::IsNullOrWhiteSpace($snapshotTargetId) -and $snapshotTargetId -ne [string]$TargetContext.ResolvedTargetId) -or
+    (-not [string]::IsNullOrWhiteSpace($snapshotComparableUrl) -and $snapshotComparableUrl -ne $currentComparableUrl)
+  ) {
+    throw (New-SilmarilStructuredErrorMessage -Payload ([ordered]@{
+      code              = "REF_TARGET_MISMATCH"
+      message           = "Ref $rawInput belongs to a different page target than the current selection."
+      hint              = "Re-run $(Get-SilmarilCliName) snapshot on the current page before using ref $rawInput."
+      refId             = $rawInput
+      port              = $Port
+      snapshotTargetId  = $snapshotTargetId
+      currentTargetId   = [string]$TargetContext.ResolvedTargetId
+      snapshotUrl       = [string]$snapshotState.target.url
+      currentUrl        = [string]$TargetContext.ResolvedUrl
+    }))
+  }
+
+  $refEntries = @()
+  if ($snapshotState.PSObject.Properties.Name -contains "refs" -and $null -ne $snapshotState.refs) {
+    $refEntries = @($snapshotState.refs)
+  }
+  $refEntry = $refEntries | Where-Object { [string]$_.id -ieq $rawInput } | Select-Object -First 1
+  if ($null -eq $refEntry) {
+    throw (New-SilmarilStructuredErrorMessage -Payload ([ordered]@{
+      code          = "REF_NOT_FOUND"
+      message       = "Ref $rawInput does not exist in the latest snapshot."
+      hint          = "Run $(Get-SilmarilCliName) snapshot again and use one of the current refs."
+      refId         = $rawInput
+      snapshotToken = [string]$snapshotState.snapshotToken
+      port          = $Port
+    }))
+  }
+
+  $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $TimeoutMs -PaddingMs 2000 -MinSeconds 10
+  $validation = Test-SilmarilSnapshotRefMatch -Target $TargetContext.Target -RefEntry $refEntry -TimeoutSec $timeoutSec
+  $validationProps = @(Get-SilmarilPropertyNames -InputObject $validation)
+  if (($validationProps -contains "ok") -and -not [bool]$validation.ok) {
+    $reason = if (($validationProps -contains "reason") -and $null -ne $validation.reason) { [string]$validation.reason } else { "unavailable" }
+    throw (New-SilmarilStructuredErrorMessage -Payload ([ordered]@{
+      code          = "REF_STALE"
+      message       = "Ref $rawInput is no longer valid for the current page state."
+      hint          = "Run $(Get-SilmarilCliName) snapshot again before using ref $rawInput."
+      refId         = $rawInput
+      snapshotToken = [string]$snapshotState.snapshotToken
+      reason        = $reason
+      storedLabel   = [string]$refEntry.label
+      storedRole    = [string]$refEntry.role
+      selector      = [string]$refEntry.selector
+      port          = $Port
+    }))
+  }
+
+  $resolvedRef = [ordered]@{
+    id            = [string]$refEntry.id
+    label         = [string]$refEntry.label
+    kind          = [string]$refEntry.kind
+    role          = [string]$refEntry.role
+    tag           = [string]$refEntry.tag
+    snapshotToken = [string]$snapshotState.snapshotToken
+  }
+
+  return [ordered]@{
+    inputSelectorOrRef = $rawInput
+    selector           = $rawInput
+    normalizedSelector = [string]$refEntry.selector
+    resolvedSelector   = [string]$refEntry.selector
+    isRef              = $true
+    resolvedRef        = $resolvedRef
+  }
+}
+
+function Add-SilmarilSelectorResolutionMetadata {
+  param(
+    [object]$Data = @{},
+    [object]$Resolution
+  )
+
+  if ($null -eq $Data) {
+    $Data = [ordered]@{}
+  }
+  elseif (-not ($Data -is [System.Collections.IDictionary])) {
+    $normalizedData = [ordered]@{}
+    foreach ($name in @(Get-SilmarilPropertyNames -InputObject $Data)) {
+      $normalizedData[$name] = $Data.$name
+    }
+    $Data = $normalizedData
+  }
+  if ($null -eq $Resolution) {
+    return $Data
+  }
+
+  $Data["inputSelectorOrRef"] = [string]$Resolution.inputSelectorOrRef
+  $Data["resolvedSelector"] = [string]$Resolution.resolvedSelector
+
+  $resolvedRef = $null
+  if ($Resolution -is [System.Collections.IDictionary]) {
+    if ($Resolution.Contains("resolvedRef")) {
+      $resolvedRef = $Resolution["resolvedRef"]
+    }
+  }
+  elseif ($Resolution.PSObject.Properties.Name -contains "resolvedRef") {
+    $resolvedRef = $Resolution.resolvedRef
+  }
+
+  if ($null -ne $resolvedRef) {
+    $Data["resolvedRef"] = $resolvedRef
+  }
+
+  return $Data
+}
+
 function ConvertTo-SilmarilTargetCandidate {
   param(
     [object]$Target,

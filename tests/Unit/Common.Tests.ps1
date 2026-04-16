@@ -491,3 +491,191 @@ Describe 'Add-SilmarilTargetMetadata' {
     $data.targetActivationError | Should -Be 'activation failed'
   }
 }
+
+Describe 'Snapshot ref helpers' {
+  BeforeEach {
+    $script:previousStateDir = $env:SILMARIL_STATE_DIR
+    $script:testStateDir = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+    $env:SILMARIL_STATE_DIR = $script:testStateDir
+    New-Item -ItemType Directory -Force -Path $script:testStateDir | Out-Null
+  }
+
+  AfterEach {
+    if ($null -eq $script:previousStateDir) {
+      Remove-Item Env:SILMARIL_STATE_DIR -ErrorAction SilentlyContinue
+    }
+    else {
+      $env:SILMARIL_STATE_DIR = $script:previousStateDir
+    }
+
+    Remove-Item -LiteralPath $script:testStateDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  It 'recognizes valid snapshot ref ids' {
+    (Test-SilmarilSnapshotRefId -Value 'e1') | Should -BeTrue
+    (Test-SilmarilSnapshotRefId -Value 'E22') | Should -BeTrue
+    (Test-SilmarilSnapshotRefId -Value 'e') | Should -BeFalse
+    (Test-SilmarilSnapshotRefId -Value '#go') | Should -BeFalse
+  }
+
+  It 'passes through ordinary selectors without snapshot state' {
+    $result = Resolve-SilmarilSelectorInput -InputValue '[data-test=launch]' -Port 9555
+
+    $result.isRef | Should -BeFalse
+    $result.inputSelectorOrRef | Should -Be '[data-test=launch]'
+    $result.normalizedSelector | Should -Be '[data-test="launch"]'
+    $result.resolvedSelector | Should -Be '[data-test="launch"]'
+    $result.resolvedRef | Should -BeNullOrEmpty
+  }
+
+  It 'throws a structured error when no snapshot state exists for a ref' {
+    $targetContext = [pscustomobject]@{
+      Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }
+      ResolvedTargetId = 'page-1'
+      ResolvedUrl = 'https://example.com'
+      ResolvedTitle = 'Example'
+    }
+
+    try {
+      Resolve-SilmarilSelectorInput -InputValue 'e1' -Port 9555 -TargetContext $targetContext | Out-Null
+      throw 'Expected missing snapshot state error.'
+    }
+    catch {
+      $payload = Get-SilmarilErrorContract -Command 'click' -Message $_.Exception.Message
+      $payload.code | Should -Be 'SNAPSHOT_NOT_FOUND'
+      $payload.refId | Should -Be 'e1'
+    }
+  }
+
+  It 'resolves a snapshot ref to its selector when validation succeeds' {
+    Save-SilmarilSnapshotState -Port 9555 -State ([ordered]@{
+      snapshotToken = 'snapshot-1'
+      target = [ordered]@{
+        id = 'page-1'
+        url = 'https://example.com'
+        title = 'Example'
+        comparableUrl = Get-SilmarilComparableUrl -Url 'https://example.com'
+      }
+      refs = @(
+        [ordered]@{
+          id = 'e1'
+          selector = '#go'
+          label = 'Go'
+          kind = 'button'
+          role = 'button'
+          tag = 'button'
+        }
+      )
+    })
+
+    Mock Test-SilmarilSnapshotRefMatch {
+      [pscustomobject]@{ ok = $true }
+    }
+
+    $targetContext = [pscustomobject]@{
+      Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }
+      ResolvedTargetId = 'page-1'
+      ResolvedUrl = 'https://example.com'
+      ResolvedTitle = 'Example'
+    }
+
+    $result = Resolve-SilmarilSelectorInput -InputValue 'e1' -Port 9555 -TargetContext $targetContext -TimeoutMs 3500
+
+    $result.isRef | Should -BeTrue
+    $result.inputSelectorOrRef | Should -Be 'e1'
+    $result.normalizedSelector | Should -Be '#go'
+    $result.resolvedSelector | Should -Be '#go'
+    $result.resolvedRef.id | Should -Be 'e1'
+    $result.resolvedRef.snapshotToken | Should -Be 'snapshot-1'
+    Assert-MockCalled Test-SilmarilSnapshotRefMatch -Times 1 -Exactly
+  }
+
+  It 'throws a structured error when the snapshot target does not match the current target' {
+    Save-SilmarilSnapshotState -Port 9555 -State ([ordered]@{
+      snapshotToken = 'snapshot-2'
+      target = [ordered]@{
+        id = 'page-other'
+        url = 'https://other.example.com'
+        title = 'Other'
+        comparableUrl = Get-SilmarilComparableUrl -Url 'https://other.example.com'
+      }
+      refs = @(
+        [ordered]@{
+          id = 'e1'
+          selector = '#go'
+          label = 'Go'
+          kind = 'button'
+          role = 'button'
+          tag = 'button'
+        }
+      )
+    })
+
+    $targetContext = [pscustomobject]@{
+      Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }
+      ResolvedTargetId = 'page-1'
+      ResolvedUrl = 'https://example.com'
+      ResolvedTitle = 'Example'
+    }
+
+    try {
+      Resolve-SilmarilSelectorInput -InputValue 'e1' -Port 9555 -TargetContext $targetContext | Out-Null
+      throw 'Expected target mismatch error.'
+    }
+    catch {
+      $payload = Get-SilmarilErrorContract -Command 'click' -Message $_.Exception.Message
+      $payload.code | Should -Be 'REF_TARGET_MISMATCH'
+      $payload.refId | Should -Be 'e1'
+      $payload.snapshotTargetId | Should -Be 'page-other'
+      $payload.currentTargetId | Should -Be 'page-1'
+    }
+  }
+
+  It 'throws a structured error when the stored ref is stale' {
+    Save-SilmarilSnapshotState -Port 9555 -State ([ordered]@{
+      snapshotToken = 'snapshot-3'
+      target = [ordered]@{
+        id = 'page-1'
+        url = 'https://example.com'
+        title = 'Example'
+        comparableUrl = Get-SilmarilComparableUrl -Url 'https://example.com'
+      }
+      refs = @(
+        [ordered]@{
+          id = 'e1'
+          selector = '#go'
+          label = 'Go'
+          kind = 'button'
+          role = 'button'
+          tag = 'button'
+        }
+      )
+    })
+
+    Mock Test-SilmarilSnapshotRefMatch {
+      [pscustomobject]@{
+        ok = $false
+        reason = 'label_mismatch'
+      }
+    }
+
+    $targetContext = [pscustomobject]@{
+      Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }
+      ResolvedTargetId = 'page-1'
+      ResolvedUrl = 'https://example.com'
+      ResolvedTitle = 'Example'
+    }
+
+    try {
+      Resolve-SilmarilSelectorInput -InputValue 'e1' -Port 9555 -TargetContext $targetContext -TimeoutMs 3500 | Out-Null
+      throw 'Expected stale ref error.'
+    }
+    catch {
+      $payload = Get-SilmarilErrorContract -Command 'click' -Message $_.Exception.Message
+      $payload.code | Should -Be 'REF_STALE'
+      $payload.refId | Should -Be 'e1'
+      $payload.reason | Should -Be 'label_mismatch'
+      $payload.selector | Should -Be '#go'
+    }
+  }
+}
