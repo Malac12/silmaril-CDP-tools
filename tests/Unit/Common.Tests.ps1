@@ -151,6 +151,8 @@ Describe 'Platform helpers' {
   It 'finds Chrome inside a user Applications bundle on macos' {
     $env:SILMARIL_PLATFORM = 'macos'
     $env:HOME = $script:testHome
+    Remove-Item Env:SILMARIL_BROWSER_PATH -ErrorAction SilentlyContinue
+
     $chromeBundle = Join-Path $script:testHome 'Applications/Google Chrome.app/Contents/MacOS'
     New-Item -ItemType Directory -Force -Path $chromeBundle | Out-Null
     $chromeBinary = Join-Path $chromeBundle 'Google Chrome'

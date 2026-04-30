@@ -35,7 +35,7 @@
   ].join(",");
   const maxRefs = coverageMode === "content" ? 180 : 120;
   const contentWindowTop = -Math.max(120, Math.round(viewportHeight * 0.25));
-  const contentWindowBottom = Math.max(Math.round(viewportHeight * 3), viewportHeight + 900);
+  const contentWindowBottom = Math.max(Math.round(viewportHeight * 4), viewportHeight + 1800);
 
   const cssEscape = (value) => {
     if (window.CSS && typeof window.CSS.escape === "function") {
