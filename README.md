@@ -20,12 +20,28 @@ Existing options did not fit that workflow well:
 
 Silmaril is built for that middle ground: flexible browser control for local AI agents working in real-life situations.
 
+## Why Not Just Playwright
+
+Playwright is excellent for test suites and scripted browser automation. The problem I kept hitting with Codex was different: I wanted an agent to operate a real browser session, stay oriented across tabs, inspect the page, make one careful move, and recover when the page changed.
+
+Playwright can do many of those things, but it is not shaped around agent control:
+
+- browser state usually lives inside a Playwright-managed session, not the already-open browser I am using
+- snapshot refs are useful, but they go stale after meaningful UI changes
+- simple browser questions often turn into ad hoc JavaScript or temporary scripts
+- tab selection is mostly session or index based, which is easy for an agent to get wrong
+- storage, screenshots, traces, and routing are strong, but they do not remember page-specific selector knowledge for the next agent run
+- the workflow is optimized for automation engineers, not for a terminal agent repeatedly asking "what page am I on, what can I safely click, and what changed?"
+
+Silmaril is my attempt to make the browser-control layer more agentic: JSON-first commands, explicit target control, visible-aware reads, count waits, snapshot refs, and local page memory.
+
 ## What It Does
 
 Silmaril provides a local command layer over Chrome DevTools Protocol workflows, including:
 
 - opening or attaching to a browser with CDP enabled
 - navigating to pages
+- listing, pinning, and resolving explicit browser targets
 - reading DOM, text, and source
 - capturing viewport snapshots with stable element refs such as `e1`, `e2`, `e3`
 - querying structured page data
@@ -38,6 +54,20 @@ It also includes:
 - a Codex / Claude skill install path
 - JSON-friendly command output for agent workflows
 - local page memory for reusable selectors, pitfalls, and playbooks
+- visibility-aware query and count waits for feeds and result lists
+- visible-first selector reads for `get-text` and `get-dom`
+- safer click and type behavior on pages with hidden duplicate controls
+- selector normalization for common shell-damaged attribute selectors
+
+## Agent-Focused Design
+
+Silmaril is designed around problems that show up when a coding agent controls a browser:
+
+- **Target drift:** `target-pin`, `target-show`, `target-clear`, `--target-id`, and `--url-match` help the agent keep acting on the intended tab instead of whichever tab happens to be active.
+- **Hidden duplicate DOM:** visible-first `get-text` / `get-dom`, `query --visible-only`, and visible count waits reduce mistakes on responsive pages with hidden mobile or desktop copies.
+- **State uncertainty:** commands return structured JSON with URL, title, match counts, visible counts, selected target, and actionability details where possible.
+- **Repeated page work:** `page-memory` stores verified selectors, pitfalls, and playbooks so agents do not have to rediscover the same page every time.
+- **Async UI changes:** explicit waits such as `wait-for-count`, `wait-for-visible-count`, `wait-for-gone`, `wait-for-any`, and `wait-for-mutation` keep the agent out of fixed sleeps.
 
 ## Quick Start
 
@@ -86,6 +116,8 @@ silmaril.cmd snapshot --coverage content --json
 silmaril.cmd get-text "e12" --json
 silmaril.cmd click "e27" --yes --json
 silmaril.cmd scroll "e20" --json
+silmaril.cmd query ".result-card a" --fields "text,href,visible" --visible-only --limit 20 --json
+silmaril.cmd wait-for-visible-count ".result-card" --min-count 10 --json
 ```
 
 Practical rules:
@@ -97,6 +129,32 @@ Practical rules:
 - Refs are for the latest snapshot on the current page target and port.
 - After page-changing navigation or a meaningful page transition, run `snapshot` again before reusing refs.
 - Ref-aware commands currently include `click`, `type`, `get-text`, `get-dom`, `exists`, `wait-for`, `wait-for-gone`, and `scroll`.
+
+## Practical CLI Loop
+
+The current default loop for messy public sites and SaaS-style pages is:
+
+1. `query --visible-only` or `snapshot --coverage content` to discover the real content surface
+2. `click` or `type`, which now prefers visible actionable or editable matches
+3. `wait-for-visible-count` or `wait-for-count` instead of raw JS when the next state is list growth or async content load
+
+Plain `query` remains DOM-order for full extraction. Selector reads through `get-text` and `get-dom` are visible-first and fall back to the first DOM match only when every match is hidden.
+
+That keeps most interaction inside the normal selector/ref workflow and reduces the need to escalate into ad hoc DOM debugging.
+
+## What Still Needs Work
+
+Silmaril is not finished. The parts that matter most next are:
+
+- clearer command semantics, especially around form controls versus text/HTML mutation
+- stronger page-memory verification across redesigns, A/B tests, responsive layouts, and auth changes
+- semantic control discovery, such as finding a button by role/name or a field by label before falling back to raw selectors
+- better recovery hints when a pinned target closes, redirects, or becomes ambiguous
+- dry-run actionability checks for every page-changing command
+- richer debugging artifacts: screenshots, console summaries, network summaries, and lightweight traces
+- broader interaction coverage, including hover, file upload, dialogs, keyboard chords, and drag/drop
+
+The goal is not to out-Playwright Playwright. The goal is to make the browser command surface reliable enough that local agents can inspect, decide, act, verify, and remember.
 
 ## Positioning
 
