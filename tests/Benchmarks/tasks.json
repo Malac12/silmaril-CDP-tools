@@ -1,361 +1,1598 @@
 {
-  "version": 1,
+  "version": 2,
+  "protocol": {
+    "scope": "Public and unauthenticated real-site flows. The benchmark prioritizes operator UX, escalation depth, and recoverability over raw wall-clock speed.",
+    "commandBudgetDefault": 12,
+    "timeBudgetMsDefault": 90000,
+    "artifacts": [
+      "raw-results.json",
+      "summary.json",
+      "summary.md",
+      "per-run transcript embedded in raw-results.json",
+      "per-run analysis fields and manual score placeholders embedded in raw-results.json"
+    ],
+    "reportSections": [
+      "group scoreboard",
+      "task head to head",
+      "tasks where both succeed but Silmaril feels worse",
+      "tasks where Silmaril needs deeper escalation",
+      "tasks where Silmaril shows a product advantage",
+      "docs versus real workflow mismatches",
+      "Silmaril backlog",
+      "issue classification"
+    ],
+    "rubric": {
+      "completion": [
+        "clean_success",
+        "success_with_escalation",
+        "partial",
+        "fail"
+      ],
+      "dimensions": [
+        "wall clock time",
+        "command count",
+        "context refresh count",
+        "escalation depth",
+        "automatic friction signals",
+        "manual tool clarity score",
+        "manual recovery quality score"
+      ]
+    },
+    "escalationLadder": [
+      {
+        "id": "documented",
+        "depth": 0,
+        "label": "Documented interaction loop"
+      },
+      {
+        "id": "snapshot_ref",
+        "depth": 1,
+        "label": "Snapshot or ref refresh"
+      },
+      {
+        "id": "selector_debug",
+        "depth": 2,
+        "label": "Selector or actionability debugging"
+      },
+      {
+        "id": "dom_inspection",
+        "depth": 3,
+        "label": "Content or DOM inspection"
+      },
+      {
+        "id": "raw_js",
+        "depth": 4,
+        "label": "Raw JS or runtime introspection"
+      },
+      {
+        "id": "visual_fallback",
+        "depth": 5,
+        "label": "Visual or coordinate fallback"
+      }
+    ]
+  },
   "tasks": [
     {
-      "id": "micro_open_wikipedia_home",
-      "tier": "micro",
-      "description": "Open Wikipedia home and wait for the search form.",
+      "id": "search_python_docs_results_to_asyncio",
+      "group": "search_navigation",
+      "site": "Python Documentation",
+      "title": "Search results to asyncio documentation",
+      "description": "Start on Python docs search results and navigate into the asyncio reference page.",
+      "startingUrl": "https://docs.python.org/3/search.html?q=asyncio&check_keywords=yes&area=default",
+      "successCondition": "The asyncio documentation page loads and the main heading contains asyncio.",
+      "expectedPrimaryInteractionPattern": "search results list to result click",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the search result link is present but cannot be opened within the command budget.",
+      "commandBudget": 8,
+      "timeBudgetMs": 60000,
+      "labels": ["search", "results", "docs"],
+      "silmarilImprovementBuckets": ["discovery_ux", "interaction_ux"],
       "steps": [
         {
           "type": "navigate",
-          "url": "https://www.wikipedia.org/",
+          "targetAlias": "main",
+          "url": "https://docs.python.org/3/search.html?q=asyncio&check_keywords=yes&area=default",
           "waitUntil": "domcontentloaded",
-          "timeoutMs": 20000
+          "timeoutMs": 30000
         },
         {
           "type": "waitFor",
-          "selector": "#searchInput",
-          "timeoutMs": 20000
-        }
-      ]
-    },
-    {
-      "id": "micro_query_wikipedia_search_form",
-      "tier": "micro",
-      "description": "Read the Wikipedia search form structure.",
-      "steps": [
-        {
-          "type": "navigate",
-          "url": "https://www.wikipedia.org/",
-          "waitUntil": "domcontentloaded",
+          "targetAlias": "main",
+          "selector": "a[href*=\"library/asyncio.html#module-asyncio\"]",
           "timeoutMs": 20000
         },
         {
-          "type": "waitFor",
-          "selector": "#searchInput",
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "a[href*=\"library/asyncio.html#module-asyncio\"]",
           "timeoutMs": 20000
         },
         {
-          "type": "query",
-          "selector": "#searchInput,button[type=\"submit\"]",
-          "fields": ["tag", "attr:name", "attr:type", "visible"],
-          "limit": 4,
-          "expect": {
-            "returnedCountAtLeast": 2,
-            "firstRow": {
-              "tag": "input",
-              "attr:name": "search",
-              "attr:type": "search",
-              "visible": true
-            }
-          },
-          "timeoutMs": 20000
-        }
-      ]
-    },
-    {
-      "id": "micro_type_wikipedia_search",
-      "tier": "micro",
-      "description": "Type into the Wikipedia search field and verify the value.",
-      "steps": [
-        {
-          "type": "navigate",
-          "url": "https://www.wikipedia.org/",
-          "waitUntil": "domcontentloaded",
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "library/asyncio.html",
           "timeoutMs": 20000
         },
         {
-          "type": "waitFor",
-          "selector": "#searchInput",
-          "timeoutMs": 20000
-        },
-        {
-          "type": "type",
-          "selector": "#searchInput",
-          "text": "Pizza",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "query",
-          "selector": "#searchInput",
-          "fields": ["value", "prop:value", "visible"],
-          "limit": 1,
-          "expect": {
-            "returnedCountAtLeast": 1,
-            "firstRow": {
-              "value": "Pizza",
-              "prop:value": "Pizza",
-              "visible": true
-            }
-          },
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "h1",
+          "expectIncludes": "asyncio",
           "timeoutMs": 15000
         }
       ]
     },
     {
-      "id": "micro_click_wikipedia_english",
-      "tier": "micro",
-      "description": "Click the English Wikipedia entry point and verify navigation.",
+      "id": "search_github_results_to_playwright_repo",
+      "group": "search_navigation",
+      "site": "GitHub",
+      "title": "Repository search results to the Playwright repo",
+      "description": "Start on GitHub repository search results and open the Microsoft Playwright repository.",
+      "startingUrl": "https://github.com/search?q=playwright&type=repositories",
+      "successCondition": "The microsoft/playwright repository page loads and exposes the repo name.",
+      "expectedPrimaryInteractionPattern": "search results list to repo click",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the expected repo result is visible but cannot be activated within budget.",
+      "commandBudget": 8,
+      "timeBudgetMs": 70000,
+      "labels": ["search", "results", "github"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
       "steps": [
         {
           "type": "navigate",
-          "url": "https://www.wikipedia.org/",
+          "targetAlias": "main",
+          "url": "https://github.com/search?q=playwright&type=repositories",
           "waitUntil": "domcontentloaded",
-          "timeoutMs": 20000
+          "timeoutMs": 30000
         },
         {
           "type": "waitFor",
-          "selector": "#js-link-box-en",
-          "timeoutMs": 20000
+          "targetAlias": "main",
+          "selector": "a[href=\"/microsoft/playwright\"]",
+          "timeoutMs": 25000
         },
         {
           "type": "click",
-          "selector": "#js-link-box-en",
-          "timeoutMs": 15000
+          "targetAlias": "main",
+          "selector": "a[href=\"/microsoft/playwright\"]",
+          "timeoutMs": 25000
         },
         {
-          "type": "waitUntilJs",
-          "expression": "location.host === 'en.wikipedia.org'",
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "/microsoft/playwright",
           "timeoutMs": 20000
         },
         {
-          "type": "waitFor",
-          "selector": "#searchInput",
-          "timeoutMs": 20000
-        }
-      ]
-    },
-    {
-      "id": "micro_wait_dynamic_loading",
-      "tier": "micro",
-      "description": "Trigger async content and wait until the final message appears.",
-      "steps": [
-        {
-          "type": "navigate",
-          "url": "https://the-internet.herokuapp.com/dynamic_loading/2",
-          "waitUntil": "domcontentloaded",
-          "timeoutMs": 20000
-        },
-        {
-          "type": "waitFor",
-          "selector": "#start button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "click",
-          "selector": "#start button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "waitUntilJs",
-          "expression": "document.querySelector('#finish') && document.querySelector('#finish').innerText.includes('Hello World!') && document.querySelector('#loading') && document.querySelector('#loading').offsetParent === null",
-          "timeoutMs": 20000
-        }
-      ]
-    },
-    {
-      "id": "flow_internet_login",
-      "tier": "flow",
-      "description": "Run the public demo login flow on the-internet.",
-      "steps": [
-        {
-          "type": "navigate",
-          "url": "https://the-internet.herokuapp.com/login",
-          "waitUntil": "domcontentloaded",
-          "timeoutMs": 20000
-        },
-        {
-          "type": "waitFor",
-          "selector": "#username",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "type",
-          "selector": "#username",
-          "text": "tomsmith",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "type",
-          "selector": "#password",
-          "text": "SuperSecretPassword!",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "click",
-          "selector": "button[type=\"submit\"]",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "waitUntilJs",
-          "expression": "location.href.includes('/secure')",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "assertTextIncludes",
-          "selector": "#flash",
-          "includes": "You logged into a secure area!",
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "strong a[href=\"/microsoft/playwright\"]",
+          "expectEquals": "playwright",
           "timeoutMs": 15000
         }
       ]
     },
     {
-      "id": "flow_dynamic_controls",
-      "tier": "flow",
-      "description": "Exercise remove/add checkbox and enable input on dynamic controls.",
+      "id": "search_python_org_results_to_asyncio_page",
+      "group": "search_navigation",
+      "site": "Python.org",
+      "title": "Python.org search results to an asyncio page",
+      "description": "Start on Python.org search results and follow an asyncio-related result.",
+      "startingUrl": "https://www.python.org/search/?q=asyncio&submit=",
+      "successCondition": "A result page containing asyncio loads in the same tab.",
+      "expectedPrimaryInteractionPattern": "search results list to relevant result click",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "wait-until-js"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if no asyncio result can be activated cleanly within budget.",
+      "commandBudget": 8,
+      "timeBudgetMs": 70000,
+      "labels": ["search", "results", "python"],
+      "silmarilImprovementBuckets": ["discovery_ux", "interaction_ux"],
       "steps": [
         {
           "type": "navigate",
-          "url": "https://the-internet.herokuapp.com/dynamic_controls",
+          "targetAlias": "main",
+          "url": "https://www.python.org/search/?q=asyncio&submit=",
           "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "a[href*=\"asyncio\"]",
           "timeoutMs": 20000
         },
         {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "a[href*=\"asyncio\"]",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "asyncio",
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "content_wikipedia_article_scan",
+      "group": "content_heavy",
+      "site": "Wikipedia",
+      "title": "Read a Wikipedia article shell",
+      "description": "Load a content-heavy Wikipedia article and validate heading plus TOC extraction.",
+      "startingUrl": "https://en.wikipedia.org/wiki/Pizza",
+      "successCondition": "The Pizza article heading and several TOC entries are available.",
+      "expectedPrimaryInteractionPattern": "open content page and inspect semantic structure",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "get-text", "query"],
+        "playwright": ["goto", "locator.waitFor", "locator.innerText", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the article heading loads but core content cannot be extracted within budget.",
+      "commandBudget": 7,
+      "timeBudgetMs": 60000,
+      "labels": ["content", "article"],
+      "silmarilImprovementBuckets": ["output_quality", "discovery_ux"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://en.wikipedia.org/wiki/Pizza",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 25000
+        },
+        {
           "type": "waitFor",
-          "selector": "#checkbox",
+          "targetAlias": "main",
+          "selector": "#firstHeading",
           "timeoutMs": 15000
         },
         {
-          "type": "click",
-          "selector": "#checkbox-example button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "waitForGone",
-          "selector": "#checkbox",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "assertTextIncludes",
-          "selector": "#message",
-          "includes": "It's gone!",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "click",
-          "selector": "#checkbox-example button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "waitFor",
-          "selector": "#checkbox",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "assertTextIncludes",
-          "selector": "#message",
-          "includes": "It's back!",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "click",
-          "selector": "#input-example button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "waitUntilJs",
-          "expression": "document.querySelector('#input-example input') && !document.querySelector('#input-example input').disabled",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "assertTextIncludes",
-          "selector": "#message",
-          "includes": "It's enabled!",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "type",
-          "selector": "#input-example input",
-          "text": "silmaril benchmark",
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "#firstHeading",
+          "expectEquals": "Pizza",
           "timeoutMs": 15000
         },
         {
           "type": "query",
-          "selector": "#input-example input",
-          "fields": ["value", "prop:value", "visible"],
-          "limit": 1,
+          "targetAlias": "main",
+          "selector": "#vector-toc a",
+          "fields": ["text", "href"],
+          "limit": 5,
           "expect": {
-            "returnedCountAtLeast": 1,
-            "firstRow": {
-              "value": "silmaril benchmark",
-              "prop:value": "silmaril benchmark",
-              "visible": true
-            }
+            "returnedCountAtLeast": 3
           },
           "timeoutMs": 15000
         }
       ]
     },
     {
-      "id": "flow_dynamic_loading",
-      "tier": "flow",
-      "description": "Run the async loading flow and verify the final text.",
+      "id": "content_mdn_fetch_api",
+      "group": "content_heavy",
+      "site": "MDN",
+      "title": "Read the Fetch API reference shell",
+      "description": "Load the MDN Fetch API page and inspect section headings.",
+      "startingUrl": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
+      "successCondition": "The Fetch API heading and multiple section headings are available.",
+      "expectedPrimaryInteractionPattern": "open content page and inspect section structure",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "get-text", "query"],
+        "playwright": ["goto", "locator.waitFor", "locator.innerText", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the page shell loads but section extraction remains ambiguous.",
+      "commandBudget": 7,
+      "timeBudgetMs": 70000,
+      "labels": ["content", "docs"],
+      "silmarilImprovementBuckets": ["output_quality", "discovery_ux"],
       "steps": [
         {
           "type": "navigate",
-          "url": "https://the-internet.herokuapp.com/dynamic_loading/2",
+          "targetAlias": "main",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
           "waitUntil": "domcontentloaded",
-          "timeoutMs": 20000
+          "timeoutMs": 30000
         },
         {
           "type": "waitFor",
-          "selector": "#start button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "click",
-          "selector": "#start button",
-          "timeoutMs": 15000
-        },
-        {
-          "type": "waitUntilJs",
-          "expression": "document.querySelector('#finish') && document.querySelector('#finish').innerText.includes('Hello World!') && document.querySelector('#loading') && document.querySelector('#loading').offsetParent === null",
+          "targetAlias": "main",
+          "selector": "main h1",
           "timeoutMs": 20000
         },
         {
-          "type": "assertTextIncludes",
-          "selector": "#finish",
-          "includes": "Hello World!",
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "expectEquals": "Fetch API",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "main h2",
+          "fields": ["text"],
+          "limit": 5,
+          "expect": {
+            "returnedCountAtLeast": 3
+          },
           "timeoutMs": 15000
         }
       ]
     },
     {
-      "id": "flow_wikipedia_search",
-      "tier": "flow",
-      "description": "Run a real Wikipedia search flow end to end.",
+      "id": "content_react_use_state",
+      "group": "content_heavy",
+      "site": "React Docs",
+      "title": "Read the React useState reference shell",
+      "description": "Load the React useState reference page and inspect initial paragraphs.",
+      "startingUrl": "https://react.dev/reference/react/useState",
+      "successCondition": "The useState heading and multiple introductory paragraphs are available.",
+      "expectedPrimaryInteractionPattern": "open content page and inspect content blocks",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "get-text", "query"],
+        "playwright": ["goto", "locator.waitFor", "locator.innerText", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the heading is visible but paragraph extraction becomes noisy or empty.",
+      "commandBudget": 7,
+      "timeBudgetMs": 70000,
+      "labels": ["content", "docs", "spa"],
+      "silmarilImprovementBuckets": ["output_quality", "discovery_ux"],
       "steps": [
         {
           "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://react.dev/reference/react/useState",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "expectEquals": "useState",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "main p",
+          "fields": ["text"],
+          "limit": 3,
+          "expect": {
+            "returnedCountAtLeast": 3
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "form_python_org_home_search",
+      "group": "form_flows",
+      "site": "Python.org",
+      "title": "Use the Python.org home-page search form",
+      "description": "Enter a query into the Python.org home-page search field and verify the search-results page.",
+      "startingUrl": "https://www.python.org/",
+      "successCondition": "The Python.org search-results page loads for asyncio and exposes asyncio-related links.",
+      "expectedPrimaryInteractionPattern": "type into public search form and submit",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "type", "click", "query"],
+        "playwright": ["goto", "locator.waitFor", "locator.fill", "locator.click", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the search form is visible but submission does not transition cleanly within budget.",
+      "commandBudget": 9,
+      "timeBudgetMs": 70000,
+      "labels": ["form", "search"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://www.python.org/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "#id-search-field",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "type",
+          "targetAlias": "main",
+          "selector": "#id-search-field",
+          "text": "asyncio",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "#submit",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "/search/?q=asyncio",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "a[href*=\"asyncio\"]",
+          "fields": ["href", "text"],
+          "limit": 5,
+          "expect": {
+            "returnedCountAtLeast": 1
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "form_python_docs_home_search",
+      "group": "form_flows",
+      "site": "Python Documentation",
+      "title": "Use the Python docs inline search form",
+      "description": "Run the inline search from the Python docs home page.",
+      "startingUrl": "https://docs.python.org/3/",
+      "successCondition": "The Python docs search results page loads for asyncio.",
+      "expectedPrimaryInteractionPattern": "type into inline docs search and submit",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "type", "click", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.fill", "locator.click", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the inline search box accepts text but submission does not route to search results within budget.",
+      "commandBudget": 9,
+      "timeBudgetMs": 70000,
+      "labels": ["form", "search", "docs"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://docs.python.org/3/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "form.inline-search input[name='q']",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "type",
+          "targetAlias": "main",
+          "selector": "form.inline-search input[name='q']",
+          "text": "asyncio",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "form.inline-search input[type='submit']",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "search.html?q=asyncio",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "h1",
+          "expectEquals": "Search",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "form_wikipedia_main_search",
+      "group": "form_flows",
+      "site": "Wikipedia",
+      "title": "Use the Wikipedia main-page search form",
+      "description": "Search for Pizza from the Wikipedia main page.",
+      "startingUrl": "https://en.wikipedia.org/wiki/Main_Page",
+      "successCondition": "The Pizza article loads in the same tab.",
+      "expectedPrimaryInteractionPattern": "type into public search form and submit",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "type", "click", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.fill", "locator.click", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the search control is visible but the article route does not complete within budget.",
+      "commandBudget": 9,
+      "timeBudgetMs": 60000,
+      "labels": ["form", "search"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
           "url": "https://en.wikipedia.org/wiki/Main_Page",
           "waitUntil": "domcontentloaded",
-          "timeoutMs": 20000
+          "timeoutMs": 25000
         },
         {
           "type": "waitFor",
+          "targetAlias": "main",
           "selector": "#searchInput",
           "timeoutMs": 15000
         },
         {
           "type": "type",
+          "targetAlias": "main",
           "selector": "#searchInput",
           "text": "Pizza",
           "timeoutMs": 15000
         },
         {
           "type": "click",
+          "targetAlias": "main",
           "selector": "#searchform button.cdx-search-input__end-button",
           "timeoutMs": 15000
         },
         {
-          "type": "waitUntilJs",
-          "expression": "location.href.toLowerCase().includes('/wiki/pizza')",
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "/wiki/Pizza",
           "timeoutMs": 20000
         },
         {
-          "type": "assertTextIncludes",
-          "selector": "h1",
-          "includes": "Pizza",
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "#firstHeading",
+          "expectEquals": "Pizza",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "spa_react_use_state_to_use_effect",
+      "group": "spa_public_apps",
+      "site": "React Docs",
+      "title": "Navigate from useState to useEffect",
+      "description": "Use client-side docs navigation from the React useState page to the useEffect page.",
+      "startingUrl": "https://react.dev/reference/react/useState",
+      "successCondition": "The useEffect route loads and the main heading becomes useEffect.",
+      "expectedPrimaryInteractionPattern": "SPA docs link to SPA docs link target",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "wait-until-js", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "waitForFunction", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the link is present but route change does not complete within budget.",
+      "commandBudget": 8,
+      "timeBudgetMs": 70000,
+      "labels": ["spa", "docs"],
+      "silmarilImprovementBuckets": ["synchronization", "escalation_ergonomics"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://react.dev/reference/react/useState",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "a[href=\"/reference/react/useEffect\"]",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "/reference/react/useEffect",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "expectEquals": "useEffect",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "spa_vite_guide_to_features",
+      "group": "spa_public_apps",
+      "site": "Vite Docs",
+      "title": "Navigate from the guide intro to Features",
+      "description": "Use the Vite docs client-side navigation path from Getting Started to Features.",
+      "startingUrl": "https://vite.dev/guide/",
+      "successCondition": "The Features page loads and the heading contains Features.",
+      "expectedPrimaryInteractionPattern": "docs link to client-routed page",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "wait-until-js", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "waitForFunction", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the docs link is visible but the route transition does not settle within budget.",
+      "commandBudget": 8,
+      "timeBudgetMs": 80000,
+      "labels": ["spa", "docs"],
+      "silmarilImprovementBuckets": ["synchronization", "discovery_ux"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://vite.dev/guide/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "a[href=\"/guide/features\"]",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "/guide/features",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "expectIncludes": "Features",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "spa_astro_getting_started_to_install",
+      "group": "spa_public_apps",
+      "site": "Astro Docs",
+      "title": "Navigate from Astro getting started to Install Astro",
+      "description": "Use the Astro docs navigation path from the start page to Install Astro.",
+      "startingUrl": "https://docs.astro.build/en/getting-started/",
+      "successCondition": "The Install Astro page loads and the heading is Install Astro.",
+      "expectedPrimaryInteractionPattern": "docs landing page to install page",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "wait-until-js", "get-text"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "waitForFunction", "locator.innerText"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the install link is visible but route transition does not settle within budget.",
+      "commandBudget": 8,
+      "timeBudgetMs": 80000,
+      "labels": ["spa", "docs"],
+      "silmarilImprovementBuckets": ["synchronization", "discovery_ux"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://docs.astro.build/en/getting-started/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "a[href=\"/en/install-and-setup/\"]",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "/en/install-and-setup/",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "main",
+          "selector": "main h1",
+          "expectEquals": "Install Astro",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "feed_behance_scroll_surface",
+      "group": "feed_surfaces",
+      "site": "Behance",
+      "title": "Inspect a Behance project feed after scrolling",
+      "description": "Open a public Behance search feed, confirm cards exist, and verify the feed remains populated after scrolling.",
+      "startingUrl": "https://www.behance.net/search/projects?search=dashboard",
+      "successCondition": "Project cards are available before and after a below-the-fold scroll.",
+      "expectedPrimaryInteractionPattern": "feed load, scan, scroll, re-scan",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "query", "scroll", "wait-for-visible-count"],
+        "playwright": ["goto", "locator.waitFor", "evaluate", "scroll", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the feed shell loads but feed cards stay unavailable after the first content scroll.",
+      "commandBudget": 9,
+      "timeBudgetMs": 90000,
+      "labels": ["feed", "scroll"],
+      "silmarilImprovementBuckets": ["discovery_ux", "synchronization"],
+      "silmarilStrengthHypothesis": "Content-oriented snapshot guidance should help on nav-heavy feed pages with many competing links.",
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://www.behance.net/search/projects?search=dashboard",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 35000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/gallery/\"]",
+          "timeoutMs": 25000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/gallery/\"]",
+          "fields": ["href"],
+          "visibleOnly": true,
+          "limit": 30,
+          "expect": {
+            "visibleCountAtLeast": 20
+          },
+          "timeoutMs": 15000
+        },
+        {
+          "type": "scroll",
+          "targetAlias": "main",
+          "y": 2200,
+          "countsAsRefresh": true,
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitForVisibleCount",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/gallery/\"]",
+          "minCount": 20,
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "feed_dribbble_surface_cards",
+      "group": "feed_surfaces",
+      "site": "Dribbble",
+      "title": "Inspect a Dribbble search feed",
+      "description": "Open a public Dribbble search feed, validate shot links, then scroll and confirm the feed stays populated.",
+      "startingUrl": "https://dribbble.com/search/dashboard",
+      "successCondition": "The search feed exposes many shot links and remains populated after scrolling.",
+      "expectedPrimaryInteractionPattern": "feed load, scan, scroll, re-scan",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "query", "scroll", "wait-for-visible-count"],
+        "playwright": ["goto", "locator.waitFor", "evaluate", "scroll", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the feed shell loads but shot links never become available within budget.",
+      "commandBudget": 9,
+      "timeBudgetMs": 90000,
+      "labels": ["feed", "scroll"],
+      "silmarilImprovementBuckets": ["discovery_ux", "synchronization"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://dribbble.com/search/dashboard",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 35000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/shots/\"]",
+          "timeoutMs": 25000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/shots/\"]",
+          "fields": ["href"],
+          "visibleOnly": true,
+          "limit": 30,
+          "expect": {
+            "visibleCountAtLeast": 20
+          },
+          "timeoutMs": 15000
+        },
+        {
+          "type": "scroll",
+          "targetAlias": "main",
+          "y": 1800,
+          "countsAsRefresh": true,
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitForVisibleCount",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/shots/\"]",
+          "minCount": 20,
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "feed_flickr_scroll_growth",
+      "group": "feed_surfaces",
+      "site": "Flickr",
+      "title": "Confirm search-feed growth after scroll",
+      "description": "Open a public Flickr search feed, record the initial visible photo-link count, then scroll until a larger visible set is loaded.",
+      "startingUrl": "https://www.flickr.com/search/?text=mountains",
+      "successCondition": "At least 120 visible photo links are available after scrolling below the fold.",
+      "expectedPrimaryInteractionPattern": "feed load, baseline count, scroll, count growth",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "query", "scroll", "wait-for-visible-count"],
+        "playwright": ["goto", "locator.waitFor", "evaluate", "scroll", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the initial feed count is available but no new links appear after one major scroll window.",
+      "commandBudget": 10,
+      "timeBudgetMs": 90000,
+      "labels": ["feed", "scroll", "growth"],
+      "silmarilImprovementBuckets": ["synchronization", "discovery_ux"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://www.flickr.com/search/?text=mountains",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 35000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/photos/\"]",
+          "timeoutMs": 25000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/photos/\"]",
+          "fields": ["href"],
+          "visibleOnly": true,
+          "limit": 250,
+          "expect": {
+            "visibleCountAtLeast": 50
+          },
+          "saveAs": "initialPhotoCount",
+          "saveFrom": "visibleCount",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "scroll",
+          "targetAlias": "main",
+          "y": 1800,
+          "countsAsRefresh": true,
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitForVisibleCount",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/photos/\"]",
+          "minCount": 120,
+          "timeoutMs": 25000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "a[href*=\"/photos/\"]",
+          "fields": ["href"],
+          "visibleOnly": true,
+          "limit": 250,
+          "expect": {
+            "visibleCountAtLeast": 120
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "modal_astro_docsearch",
+      "group": "modal_menu_heavy",
+      "site": "Astro Docs",
+      "title": "Open and close the Astro DocSearch modal",
+      "description": "Trigger the Astro search modal, validate the input, then close it cleanly.",
+      "startingUrl": "https://docs.astro.build/en/getting-started/",
+      "successCondition": "The DocSearch modal appears with a search input, then disappears after cancel.",
+      "expectedPrimaryInteractionPattern": "search trigger to modal to close",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "wait-for-gone"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "locator.waitFor(hidden)"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the search trigger is present but the modal shell does not appear within budget.",
+      "commandBudget": 9,
+      "timeBudgetMs": 70000,
+      "labels": ["modal", "search"],
+      "silmarilImprovementBuckets": ["interaction_ux", "discovery_ux"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://docs.astro.build/en/getting-started/",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "button.DocSearch-Button",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "button.DocSearch-Button",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": ".DocSearch-Modal",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": ".DocSearch-Input",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "button.DocSearch-Cancel",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "waitForGone",
+          "targetAlias": "main",
+          "selector": ".DocSearch-Modal",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "menu_next_directory_select",
+      "group": "modal_menu_heavy",
+      "site": "Next.js Docs",
+      "title": "Open the Next.js directory selector",
+      "description": "Open the directory selector on Next.js docs and verify the visible menu options.",
+      "startingUrl": "https://nextjs.org/docs",
+      "successCondition": "The directory selector opens and exposes at least two visible options.",
+      "expectedPrimaryInteractionPattern": "menu trigger to menu content",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "snapshot", "click", "query"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "snapshot_ref",
+      "stopCondition": "Stop if the selector button is present but a clean visible-open action is not possible within budget.",
+      "commandBudget": 10,
+      "timeBudgetMs": 80000,
+      "labels": ["menu", "docs", "snapshot"],
+      "silmarilImprovementBuckets": ["discovery_ux", "interaction_ux"],
+      "docsVsRealityNote": "Next.js docs expose duplicate hidden and visible controls. In practice, visible ref selection is more reliable than raw href or aria-label CSS matching.",
+      "silmarilStrengthHypothesis": "Snapshot refs should make visible-control selection clearer than raw selector guessing on duplicated docs chrome.",
+      "profiles": {
+        "silmaril": {
+          "steps": [
+            {
+              "type": "navigate",
+              "targetAlias": "main",
+              "url": "https://nextjs.org/docs",
+              "waitUntil": "domcontentloaded",
+              "timeoutMs": 30000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "main h1",
+              "timeoutMs": 25000
+            },
+            {
+              "type": "snapshot",
+              "targetAlias": "main",
+              "coverage": "content",
+              "surface": "snapshot_ref",
+              "countsAsRefresh": true,
+              "timeoutMs": 15000,
+              "expect": {
+                "refCountAtLeast": 10
+              }
+            },
+            {
+              "type": "snapshotFindRef",
+              "targetAlias": "main",
+              "surface": "snapshot_ref",
+              "role": "button",
+              "labelIncludes": "Using App Router",
+              "saveAs": "directoryMenuRef"
+            },
+            {
+              "type": "click",
+              "targetAlias": "main",
+              "selector": "{{directoryMenuRef}}",
+              "surface": "snapshot_ref",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper]",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "query",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper] [role=\"option\"], [data-radix-popper-content-wrapper] [role=\"menuitem\"], [data-radix-popper-content-wrapper] [cmdk-item]",
+              "fields": ["text"],
+              "limit": 5,
+              "expect": {
+                "returnedCountAtLeast": 2
+              },
+              "timeoutMs": 15000
+            }
+          ]
+        },
+        "playwright": {
+          "steps": [
+            {
+              "type": "navigate",
+              "targetAlias": "main",
+              "url": "https://nextjs.org/docs",
+              "waitUntil": "domcontentloaded",
+              "timeoutMs": 30000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "button[aria-label=\"Open directory select\"]:has-text(\"Using App Router\")",
+              "timeoutMs": 25000
+            },
+            {
+              "type": "click",
+              "targetAlias": "main",
+              "selector": "button[aria-label=\"Open directory select\"]:has-text(\"Using App Router\")",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper]",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "query",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper] [role=\"option\"], [data-radix-popper-content-wrapper] [role=\"menuitem\"], [data-radix-popper-content-wrapper] [cmdk-item]",
+              "fields": ["text"],
+              "limit": 5,
+              "expect": {
+                "returnedCountAtLeast": 2
+              },
+              "timeoutMs": 15000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "menu_next_version_select",
+      "group": "modal_menu_heavy",
+      "site": "Next.js Docs",
+      "title": "Open the Next.js version selector",
+      "description": "Open the version selector on Next.js docs and verify that multiple versions are available.",
+      "startingUrl": "https://nextjs.org/docs",
+      "successCondition": "The version selector opens and exposes at least two version options.",
+      "expectedPrimaryInteractionPattern": "menu trigger to menu content",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "snapshot", "click", "query"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "snapshot_ref",
+      "stopCondition": "Stop if the selector button is present but a clean visible-open action is not possible within budget.",
+      "commandBudget": 10,
+      "timeBudgetMs": 80000,
+      "labels": ["menu", "docs", "snapshot"],
+      "silmarilImprovementBuckets": ["discovery_ux", "interaction_ux"],
+      "docsVsRealityNote": "Version controls on Next.js docs also appear in duplicated chrome. Snapshot-driven visible-target resolution is more reliable than first-match CSS.",
+      "silmarilStrengthHypothesis": "Snapshot refs should help separate the visible version button from hidden duplicates.",
+      "profiles": {
+        "silmaril": {
+          "steps": [
+            {
+              "type": "navigate",
+              "targetAlias": "main",
+              "url": "https://nextjs.org/docs",
+              "waitUntil": "domcontentloaded",
+              "timeoutMs": 30000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "main h1",
+              "timeoutMs": 25000
+            },
+            {
+              "type": "snapshot",
+              "targetAlias": "main",
+              "coverage": "content",
+              "surface": "snapshot_ref",
+              "countsAsRefresh": true,
+              "timeoutMs": 15000,
+              "expect": {
+                "refCountAtLeast": 10
+              }
+            },
+            {
+              "type": "snapshotFindRef",
+              "targetAlias": "main",
+              "surface": "snapshot_ref",
+              "role": "button",
+              "labelIncludes": "Latest Version",
+              "saveAs": "versionMenuRef"
+            },
+            {
+              "type": "click",
+              "targetAlias": "main",
+              "selector": "{{versionMenuRef}}",
+              "surface": "snapshot_ref",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper]",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "query",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper] [role=\"option\"], [data-radix-popper-content-wrapper] [role=\"menuitem\"], [data-radix-popper-content-wrapper] [cmdk-item]",
+              "fields": ["text"],
+              "limit": 5,
+              "expect": {
+                "returnedCountAtLeast": 2
+              },
+              "timeoutMs": 15000
+            }
+          ]
+        },
+        "playwright": {
+          "steps": [
+            {
+              "type": "navigate",
+              "targetAlias": "main",
+              "url": "https://nextjs.org/docs",
+              "waitUntil": "domcontentloaded",
+              "timeoutMs": 30000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "button[aria-label=\"Open version select\"]:has-text(\"Latest Version\")",
+              "timeoutMs": 25000
+            },
+            {
+              "type": "click",
+              "targetAlias": "main",
+              "selector": "button[aria-label=\"Open version select\"]:has-text(\"Latest Version\")",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "waitFor",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper]",
+              "timeoutMs": 15000
+            },
+            {
+              "type": "query",
+              "targetAlias": "main",
+              "selector": "[data-radix-popper-content-wrapper] [role=\"option\"], [data-radix-popper-content-wrapper] [role=\"menuitem\"], [data-radix-popper-content-wrapper] [cmdk-item]",
+              "fields": ["text"],
+              "limit": 5,
+              "expect": {
+                "returnedCountAtLeast": 2
+              },
+              "timeoutMs": 15000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "custom_lichess_board_load",
+      "group": "custom_rendered",
+      "site": "Lichess",
+      "title": "Load a public chess analysis board",
+      "description": "Validate that the Lichess analysis board shell and board pieces are available.",
+      "startingUrl": "https://lichess.org/analysis",
+      "successCondition": "The chessboard renders and at least 30 pieces are queryable in the board DOM.",
+      "expectedPrimaryInteractionPattern": "open custom-rendered app and validate rendered state",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "query"],
+        "playwright": ["goto", "locator.waitFor", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the board shell loads but no piece nodes become available within budget.",
+      "commandBudget": 7,
+      "timeBudgetMs": 70000,
+      "labels": ["custom", "board"],
+      "silmarilImprovementBuckets": ["product_positioning", "discovery_ux"],
+      "silmarilStrengthHypothesis": "Silmaril should do relatively well on runtime-facing DOM inspection for custom-rendered app shells.",
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://lichess.org/analysis",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "cg-board",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "piece",
+          "fields": ["tag"],
+          "limit": 40,
+          "expect": {
+            "returnedCountAtLeast": 30
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "custom_openstreetmap_zoom",
+      "group": "custom_rendered",
+      "site": "OpenStreetMap",
+      "title": "Zoom in on a public map",
+      "description": "Use the public OpenStreetMap zoom-in control and confirm that the hash-based zoom level changes.",
+      "startingUrl": "https://www.openstreetmap.org/#map=5/51.500/-0.100",
+      "successCondition": "The URL hash changes from map zoom level 5 to zoom level 6.",
+      "expectedPrimaryInteractionPattern": "click custom map control and verify app state",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "click", "wait-until-js"],
+        "playwright": ["goto", "locator.waitFor", "locator.click", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the zoom control is present but state does not change after a clean click.",
+      "commandBudget": 8,
+      "timeBudgetMs": 70000,
+      "labels": ["custom", "map"],
+      "silmarilImprovementBuckets": ["interaction_ux", "product_positioning"],
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://www.openstreetmap.org/#map=5/51.500/-0.100",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "a[aria-label=\"Zoom In\"]",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "click",
+          "targetAlias": "main",
+          "selector": "a[aria-label=\"Zoom In\"]",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "main",
+          "includes": "#map=6/",
+          "timeoutMs": 20000
+        }
+      ]
+    },
+    {
+      "id": "custom_desmos_shell",
+      "group": "custom_rendered",
+      "site": "Desmos",
+      "title": "Load the Desmos calculator shell",
+      "description": "Validate that the Desmos calculator app shell, zoom controls, and many editor textareas are present.",
+      "startingUrl": "https://www.desmos.com/calculator",
+      "successCondition": "The calculator shell loads and exposes the zoom button plus many editor textareas.",
+      "expectedPrimaryInteractionPattern": "open custom-rendered app and inspect runtime shell",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "wait-for", "query"],
+        "playwright": ["goto", "locator.waitFor", "evaluate"]
+      },
+      "fallbackEscalationBoundary": "dom_inspection",
+      "stopCondition": "Stop if the shell loads but editor controls remain unavailable within budget.",
+      "commandBudget": 7,
+      "timeBudgetMs": 80000,
+      "labels": ["custom", "calculator"],
+      "silmarilImprovementBuckets": ["product_positioning", "output_quality"],
+      "silmarilStrengthHypothesis": "Silmaril should be competitive when the task favors inspecting live app shell state over semantic document content.",
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "main",
+          "url": "https://www.desmos.com/calculator",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 35000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": ".dcg-container",
+          "timeoutMs": 25000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "main",
+          "selector": "button.dcg-action-zoomin",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "query",
+          "targetAlias": "main",
+          "selector": "textarea",
+          "fields": ["tag"],
+          "limit": 40,
+          "expect": {
+            "returnedCountAtLeast": 10
+          },
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "multitab_react_title_to_github_search",
+      "group": "multi_tab_reference",
+      "site": "React Docs plus GitHub",
+      "title": "Extract a heading, use it in another tab, then return",
+      "description": "Read the React page title, use it in a second-tab GitHub search, then switch back and re-verify the original state.",
+      "startingUrl": "https://react.dev/reference/react/useState",
+      "successCondition": "A GitHub search tab is opened with the extracted term, then the original React tab is re-validated.",
+      "expectedPrimaryInteractionPattern": "read in tab A, use in tab B, switch back to tab A",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "get-text", "target selection", "wait-for"],
+        "playwright": ["goto", "locator.innerText", "multi-page context", "waitFor"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the second tab opens with the right query but returning to the source tab does not preserve the source heading.",
+      "commandBudget": 9,
+      "timeBudgetMs": 70000,
+      "labels": ["multitab", "reference"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
+      "silmarilStrengthHypothesis": "Explicit target handling should be one of Silmaril's clearest advantages over generic tab-local interaction loops.",
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "source",
+          "url": "https://react.dev/reference/react/useState",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "source",
+          "selector": "main h1",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "source",
+          "selector": "main h1",
+          "saveAs": "topic",
+          "expectEquals": "useState",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "navigate",
+          "targetAlias": "search",
+          "url": "https://github.com/search?q={{urlencode:topic}}&type=repositories",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "search",
+          "includes": "q=useState",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "switchTarget",
+          "targetAlias": "source"
+        },
+        {
+          "type": "getText",
+          "targetAlias": "source",
+          "selector": "main h1",
+          "expectEquals": "useState",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "multitab_wikipedia_title_to_python_search",
+      "group": "multi_tab_reference",
+      "site": "Wikipedia plus Python.org",
+      "title": "Carry a Wikipedia title into another search tab",
+      "description": "Read a Wikipedia article title, open a Python.org search tab with that value, then return to the source tab.",
+      "startingUrl": "https://en.wikipedia.org/wiki/Pizza",
+      "successCondition": "The second tab opens with the extracted query and the original source tab still exposes Pizza.",
+      "expectedPrimaryInteractionPattern": "read in tab A, use in tab B, switch back to tab A",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "get-text", "target selection", "wait-until-js"],
+        "playwright": ["goto", "locator.innerText", "multi-page context", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the second tab opens but returning to the source tab loses the source heading.",
+      "commandBudget": 9,
+      "timeBudgetMs": 70000,
+      "labels": ["multitab", "reference"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
+      "silmarilStrengthHypothesis": "Target pinning and explicit tab routing should reduce ambiguity in cross-tab reference tasks.",
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "source",
+          "url": "https://en.wikipedia.org/wiki/Pizza",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 25000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "source",
+          "selector": "#firstHeading",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "source",
+          "selector": "#firstHeading",
+          "saveAs": "topic",
+          "expectEquals": "Pizza",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "navigate",
+          "targetAlias": "search",
+          "url": "https://www.python.org/search/?q={{urlencode:topic}}&submit=",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "search",
+          "includes": "/search/?q=Pizza",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "switchTarget",
+          "targetAlias": "source"
+        },
+        {
+          "type": "getText",
+          "targetAlias": "source",
+          "selector": "#firstHeading",
+          "expectEquals": "Pizza",
+          "timeoutMs": 15000
+        }
+      ]
+    },
+    {
+      "id": "multitab_mdn_title_to_wikipedia_search",
+      "group": "multi_tab_reference",
+      "site": "MDN plus Wikipedia",
+      "title": "Carry an MDN page title into a Wikipedia search tab",
+      "description": "Read the MDN Fetch API title, open a Wikipedia search tab with that term, then return to the MDN source tab.",
+      "startingUrl": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
+      "successCondition": "The second tab opens a Wikipedia search URL for the extracted term and the MDN source tab remains intact.",
+      "expectedPrimaryInteractionPattern": "read in tab A, use in tab B, switch back to tab A",
+      "allowedToolSurface": {
+        "silmaril": ["openurl", "get-text", "target selection", "wait-until-js"],
+        "playwright": ["goto", "locator.innerText", "multi-page context", "waitForFunction"]
+      },
+      "fallbackEscalationBoundary": "selector_debug",
+      "stopCondition": "Stop if the second tab opens but the original MDN source heading cannot be recovered afterward.",
+      "commandBudget": 9,
+      "timeBudgetMs": 80000,
+      "labels": ["multitab", "reference"],
+      "silmarilImprovementBuckets": ["interaction_ux", "synchronization"],
+      "silmarilStrengthHypothesis": "Silmaril should benefit from explicit tab identity on multi-tab reference work where URL-derived selectors are secondary.",
+      "steps": [
+        {
+          "type": "navigate",
+          "targetAlias": "source",
+          "url": "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "waitFor",
+          "targetAlias": "source",
+          "selector": "main h1",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "getText",
+          "targetAlias": "source",
+          "selector": "main h1",
+          "saveAs": "topic",
+          "expectEquals": "Fetch API",
+          "timeoutMs": 15000
+        },
+        {
+          "type": "navigate",
+          "targetAlias": "search",
+          "url": "https://en.wikipedia.org/w/index.php?search={{urlencode:topic}}&title=Special%3ASearch&ns0=1",
+          "waitUntil": "domcontentloaded",
+          "timeoutMs": 30000
+        },
+        {
+          "type": "assertUrlIncludes",
+          "targetAlias": "search",
+          "includes": "search=Fetch",
+          "timeoutMs": 20000
+        },
+        {
+          "type": "switchTarget",
+          "targetAlias": "source"
+        },
+        {
+          "type": "getText",
+          "targetAlias": "source",
+          "selector": "main h1",
+          "expectEquals": "Fetch API",
           "timeoutMs": 15000
         }
       ]
