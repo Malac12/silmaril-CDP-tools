@@ -79,6 +79,8 @@ Page Memory is one of the highest-leverage parts of Silmaril. Use it early inste
 - Do not launch a fresh browser blindly. Always check whether a CDP session is already available first, and only call `openbrowser` when no session is reachable.
 - Prefer `page-memory lookup --json` early on revisited pages or app-like workflows before spending time rediscovering selectors and behaviors manually.
 - Prefer live DOM commands over `get-source` when choosing selectors or checking rendered state.
+- Selector reads are visibility-aware where that helps normal interaction: `get-text` prefers the first visible match and falls back to the first DOM match only when every match is hidden. `get-dom` stays DOM-first for markup debugging and reports visibility metadata.
+- Plain `query` returns rows in DOM order. Use `query --visible-only` for visible rows first/only, especially on feeds, search results, and pages with hidden mobile/desktop duplicates.
 - Use `snapshot --json` when you want a compact map of the current visible page with reusable refs such as `e1`, `e2`, and `e27`.
 - `snapshot` defaults to `viewport` coverage. If the useful content is below a sticky header or top nav, either scroll that content into view first or use `snapshot --coverage content`.
 - `snapshot --coverage content` keeps the snapshot bounded but prefers richer content roots such as `main` and reaches further below the fold.
@@ -98,12 +100,13 @@ Page Memory is one of the highest-leverage parts of Silmaril. Use it early inste
 
 ## Command selection
 
-- Use `get-text` for a single text value.
-- Use `query` for structured multi-row extraction.
-- Use `get-dom` to debug selector or markup issues.
+- Use `get-text` for a single text value; selector reads prefer the first visible match.
+- Use `query` for structured multi-row extraction. Add `--visible-only` when the task wants visible page content instead of raw DOM order.
+- Use `get-dom` to debug selector or markup issues. Selector mode is DOM-first and reports `selectionPolicy`, `selectedMatch`, `selectedVisible`, `matchedCount`, and `visibleCount` in JSON output.
 - Use `snapshot` when a balanced page map plus short refs is more useful than raw selectors.
 - Use `get-source` only when raw response HTML matters more than the rendered DOM.
-- Use `wait-for`, `wait-for-any`, `wait-for-gone`, `wait-until-js`, or `wait-for-mutation` to synchronize.
+- Use `wait-for`, `wait-for-any`, `wait-for-gone`, `wait-for-visible-count`, `wait-for-count`, `wait-until-js`, or `wait-for-mutation` to synchronize.
+- Prefer `wait-for-visible-count` or `wait-for-count` over raw JS when waiting for list/feed growth.
 - Use `page-memory lookup --json` early when revisiting a page/app and reusable selectors, pitfalls, or playbooks might already be stored.
 - Use `page-memory verify --id <memoryId> --json` before trusting saved memory on a live page.
 

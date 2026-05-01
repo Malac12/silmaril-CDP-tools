@@ -56,6 +56,8 @@ Examples:
 ./silmaril-mac.sh snapshot --coverage content --json
 ./silmaril-mac.sh get-text "e12" --json
 ./silmaril-mac.sh click "e27" --yes --json
+./silmaril-mac.sh query ".result-card a" --fields "text,href,visible" --visible-only --limit 20 --json
+./silmaril-mac.sh wait-for-visible-count ".result-card" --min-count 10 --json
 ```
 
 Practical rules:
@@ -64,6 +66,9 @@ Practical rules:
 - `snapshot --coverage content` stays bounded but prefers richer content roots such as `main` and reaches further below the fold.
 - On sticky-header or nav-heavy pages, either scroll the content you care about into view first or use `snapshot --coverage content`.
 - After page-changing navigation or a meaningful page transition, run `snapshot` again before reusing refs.
+- Plain `query` returns DOM-order rows; `query --visible-only` is the preferred read path for feeds or pages with hidden duplicate nodes.
+- `get-text` and selector-form `get-dom` prefer the first visible match and fall back to the first DOM match only when every match is hidden.
+- `wait-for-count` and `wait-for-visible-count` cover most async list-growth waits without dropping to raw JS.
 
 ## Smoke Test
 

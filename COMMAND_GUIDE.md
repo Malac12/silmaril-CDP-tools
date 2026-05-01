@@ -22,12 +22,14 @@ silmaril.cmd get-dom
 silmaril.cmd get-dom "#main"
 silmaril.cmd get-text "#title"
 silmaril.cmd query "a[href]" --fields "text,href,attr:data-test" --limit 20
+silmaril.cmd query ".result-card a" --fields "text,href,visible" --visible-only --limit 20
+silmaril.cmd query ".feed a" --fields "href" --root "main" --min-count 10 --limit 50
 silmaril.cmd get-source
 ```
 
-- `get-dom` reads live DOM.
+- `get-dom` reads live DOM. With a selector, it returns the first DOM match and reports match/visibility metadata in JSON mode.
 - `get-source` reads page source HTML (network/resource source).
-- `query` returns structured rows for selector matches.
+- `query` returns structured rows for selector matches. By default rows follow DOM order; pass `--visible-only` when you want visible matches only.
 - `snapshot` captures a live DOM map and assigns short refs such as `e1`, `e2`, and `e27`.
 
 ### Choosing Between `get-text`, `get-dom`, and `query`
@@ -35,13 +37,13 @@ silmaril.cmd get-source
 Use each command for a different read shape:
 
 - `get-text`: single scalar text read from one selector.
-- `get-dom`: raw live HTML snapshot for inspection/debugging.
-- `query`: structured multi-row extraction, for example fields like `text,href,attr:data-test` with optional limits.
+- `get-dom`: live HTML for one selector or the whole document. Selector mode is DOM-first so hidden duplicate markup remains inspectable.
+- `query`: structured multi-row extraction, for example fields like `text,href,attr:data-test` with optional limits. Plain `query` is DOM-order; `query --visible-only` returns visible matches only.
 
 Practical split:
 
 - Use `get-text` for quick assertions and simple guards.
-- Use `get-dom` when diagnosing selector/markup issues.
+- Use `get-dom` when diagnosing selector/markup issues. If a selector matches hidden and visible duplicates, `get-dom` shows the first DOM match and reports `matchedCount`, `visibleCount`, `selectionPolicy`, `selectedMatch`, and `selectedVisible` in JSON output.
 - Use `query` for pipeline-friendly semantic JSON extraction.
 
 `query` field syntax:
@@ -49,6 +51,12 @@ Practical split:
 - Built-ins: `text`, `href`, `html`, `outer-html`, `tag`, `value`, `visible`
 - Attributes: `attr:name` (for example `attr:data-test`)
 - Properties: `prop:name`
+
+Useful `query` flags:
+
+- `--visible-only`: return only visible matches. This is the right default for feeds, search results, and other pages with hidden duplicates.
+- `--min-count n`: fail fast if the query does not expose enough matches for the next step.
+- `--root "selector"`: scope the query to one container when the page has noisy global navigation or repeated shell links.
 
 ### Snapshot and Refs
 
@@ -111,6 +119,8 @@ silmaril.cmd scroll --top 0
 - Mutations and actions require `--yes`.
 - `type` works for `input`, `textarea`, and `contenteditable`.
 - `type` replaces the editable value, then verifies that the final DOM value matches the requested text.
+- `click` now targets the first visible actionable match, not just the first DOM match.
+- `type` now targets the first visible editable match, which avoids many hidden-duplicate controls.
 - `scroll "#selector"` uses `scrollIntoView` with configurable `--behavior`, `--block`, and `--inline`.
 - `scroll --x/--y` scrolls the page by a delta. Add `--container ".selector"` to scroll a nested pane instead.
 - `scroll --left/--top` scrolls the page or container to an absolute position.
@@ -124,6 +134,9 @@ silmaril.cmd scroll --top 0
 silmaril.cmd wait-for "#result"
 silmaril.cmd wait-for-any ".result-list" ".empty-state" ".error-banner"
 silmaril.cmd wait-for-gone ".loading-overlay"
+silmaril.cmd wait-for-count ".result-card" --min-count 10
+silmaril.cmd wait-for-visible-count ".result-card" --min-count 10
+silmaril.cmd wait-for-visible-count "a[href*='/gallery/']" --min-count 20 --root "main"
 silmaril.cmd wait-until-js "document.querySelectorAll('.item').length > 0"
 silmaril.cmd wait-for-mutation "#app"
 silmaril.cmd wait-for-mutation "#app" --details
@@ -133,9 +146,13 @@ silmaril.cmd wait-for-any ".result-list" ".empty-state" --counts --json
 - `wait-for`: waits for a visible match.
 - `wait-for-any`: waits until any provided selector is visibly matched.
 - `wait-for-gone`: waits until no visible matches remain.
+- `wait-for-count`: waits until selector match count reaches a minimum.
+- `wait-for-visible-count`: waits until visible selector count reaches a minimum.
 - `wait-until-js`: waits until a JS condition is truthy.
 - `wait-for-mutation`: hook-style wait with `MutationObserver`.
 - `wait-for-any --json` returns `matchedSelector` and can optionally include per-selector `counts` with `--counts`.
+
+Prefer the count waits over `wait-until-js` when the real condition is "enough elements exist" or "enough visible cards loaded". That keeps the workflow inside the documented selector loop instead of dropping to raw JS.
 
 ## 5. Important Advice
 

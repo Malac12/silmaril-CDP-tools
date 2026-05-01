@@ -55,7 +55,7 @@ It also includes:
 - JSON-friendly command output for agent workflows
 - local page memory for reusable selectors, pitfalls, and playbooks
 - visibility-aware query and count waits for feeds and result lists
-- visible-first selector reads for `get-text` and `get-dom`
+- visible-first selector reads for `get-text`
 - safer click and type behavior on pages with hidden duplicate controls
 - selector normalization for common shell-damaged attribute selectors
 
@@ -64,7 +64,7 @@ It also includes:
 Silmaril is designed around problems that show up when a coding agent controls a browser:
 
 - **Target drift:** `target-pin`, `target-show`, `target-clear`, `--target-id`, and `--url-match` help the agent keep acting on the intended tab instead of whichever tab happens to be active.
-- **Hidden duplicate DOM:** visible-first `get-text` / `get-dom`, `query --visible-only`, and visible count waits reduce mistakes on responsive pages with hidden mobile or desktop copies.
+- **Hidden duplicate DOM:** visible-first `get-text`, DOM-first `get-dom`, `query --visible-only`, and visible count waits reduce mistakes on responsive pages with hidden mobile or desktop copies while keeping diagnostic markup inspectable.
 - **State uncertainty:** commands return structured JSON with URL, title, match counts, visible counts, selected target, and actionability details where possible.
 - **Repeated page work:** `page-memory` stores verified selectors, pitfalls, and playbooks so agents do not have to rediscover the same page every time.
 - **Async UI changes:** explicit waits such as `wait-for-count`, `wait-for-visible-count`, `wait-for-gone`, `wait-for-any`, and `wait-for-mutation` keep the agent out of fixed sleeps.
@@ -138,7 +138,7 @@ The current default loop for messy public sites and SaaS-style pages is:
 2. `click` or `type`, which now prefers visible actionable or editable matches
 3. `wait-for-visible-count` or `wait-for-count` instead of raw JS when the next state is list growth or async content load
 
-Plain `query` remains DOM-order for full extraction. Selector reads through `get-text` and `get-dom` are visible-first and fall back to the first DOM match only when every match is hidden.
+Plain `query` remains DOM-order for full extraction. `get-text` is visible-first for user-facing reads, while `get-dom` remains DOM-first for markup debugging.
 
 That keeps most interaction inside the normal selector/ref workflow and reduces the need to escalate into ad hoc DOM debugging.
 

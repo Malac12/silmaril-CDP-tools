@@ -19,10 +19,14 @@ If the checkout is not present at that path, resolve `silmaril.cmd` from `PATH` 
 - Single assertion by ref: `get-text 'e12' --json`
 - Presence check: `exists '[data-test="submit"]' --json`
 - Structured extraction: `query 'a[href]' --fields 'text,href,attr:data-test' --limit 20 --json`
+- Visible structured extraction: `query '.result-card a' --fields 'text,href,visible' --visible-only --limit 20 --json`
 - Debug markup: `get-dom '#main' --json`
 - Reuse prior knowledge early: `page-memory lookup --json`
 
 Prefer `query` when later steps need rows or machine-readable fields.
+- Plain `query` returns rows in DOM order. Use `query --visible-only` when hidden duplicates should be excluded.
+- `get-text` prefers the first visible match and falls back to the first DOM match only when no visible match exists.
+- `get-dom` is DOM-first for debugging hidden duplicate markup. `get-dom --json` reports `selectionPolicy`, `selectedMatch`, `selectedVisible`, `matchedCount`, and `visibleCount` for selector reads.
 
 Practical rule:
 
@@ -68,10 +72,12 @@ Ref-aware commands currently include:
 - Show element: `wait-for '#result' --json`
 - Wait for any outcome: `wait-for-any '.result-list' '.empty-state' --counts --json`
 - Spinner disappears: `wait-for-gone '.spinner' --json`
+- Visible card count: `wait-for-visible-count '.result-card' --min-count 10 --json`
+- DOM match count: `wait-for-count '.result-card' --min-count 10 --json`
 - JS condition: `wait-until-js "document.querySelectorAll('.item').length > 0" --json`
 - Mutation watch: `wait-for-mutation '#app' --details --json`
 
-Use one explicit wait after each action instead of sleeping.
+Use one explicit wait after each action instead of sleeping. Prefer count waits over raw JS when the state is "enough items exist" or "enough visible items loaded".
 
 ## JavaScript patterns
 
