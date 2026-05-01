@@ -26,6 +26,7 @@ Describe 'Normalize-SilmarilSelector' {
   It 'quotes unquoted attribute selector values' {
     (Normalize-SilmarilSelector -Selector '[data-test=launch]') | Should -Be '[data-test="launch"]'
     (Normalize-SilmarilSelector -Selector 'a[href^=/products/]') | Should -Be 'a[href^="/products/"]'
+    (Normalize-SilmarilSelector -Selector 'a[aria-label=Zoom In]') | Should -Be 'a[aria-label="Zoom In"]'
   }
 
   It 'removes one outer quote layer and normalizes smart quotes' {
@@ -413,6 +414,73 @@ Describe 'Invoke-SilmarilSelectorWait' {
     $result.ok | Should -BeTrue
     $script:capturedSelectorWaitExpression.Contains('var sels = ["[data-test=\"launch\"]"];') | Should -BeTrue
   }
+
+  It 'serializes minCount and root selector for count waits' {
+    $script:capturedSelectorWaitExpression = $null
+
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      param($Target, $Expression, $TimeoutSec)
+      $script:capturedSelectorWaitExpression = $Expression
+      return [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $true
+            matchedSelector = '.photo-link'
+            matchedCount = 3
+            visibleCount = 2
+            elapsedMs = 0
+          }
+        }
+      }
+    }
+
+    $result = Invoke-SilmarilSelectorWait -Target ([pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example' }) -Selectors @('.photo-link') -Mode 'visible-count' -TimeoutMs 500 -PollMs 50 -MinCount 2 -RootSelector '#cards' -CommandName 'wait-for-visible-count'
+
+    $result.ok | Should -BeTrue
+    $script:capturedSelectorWaitExpression.Contains('var minCount = 2;') | Should -BeTrue
+    $script:capturedSelectorWaitExpression.Contains('var rootSelector = "#cards";') | Should -BeTrue
+  }
+}
+
+Describe 'Invoke-SilmarilRuntimeEvaluate' {
+  It 're-resolves the target once when the execution context is replaced' {
+    $script:cdpInvocationCount = 0
+
+    Mock Invoke-SilmarilCdpCommand {
+      $script:cdpInvocationCount += 1
+      if ($script:cdpInvocationCount -eq 1) {
+        throw 'CDP Runtime.evaluate failed: Inspected target navigated or closed'
+      }
+
+      return [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = 'ok'
+        }
+      }
+    }
+
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-2'; webSocketDebuggerUrl = 'ws://example-2' }
+        ResolvedTargetId = 'page-2'
+        ResolvedUrl = 'https://example.com/next'
+        ResolvedTitle = 'Example Next'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'preferred-user-page'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+
+    $result = Invoke-SilmarilRuntimeEvaluate -Target ([pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example-1' }) -Expression 'document.title' -TimeoutSec 2 -Port 9222 -AllowTargetRefresh
+    $recovery = Get-SilmarilRuntimeRecoveryMetadata -InputObject $result
+
+    $result.result.value | Should -Be 'ok'
+    $recovery.retriedAfterTargetRefresh | Should -BeTrue
+    $recovery.initialResolvedTargetId | Should -Be 'page-1'
+    $recovery.finalResolvedTargetId | Should -Be 'page-2'
+    Assert-MockCalled Resolve-SilmarilPageTarget -Times 1 -Exactly
+  }
 }
 
 Describe 'Invoke-SilmarilVisualCursorCue' {
@@ -470,6 +538,13 @@ Describe 'Get-SilmarilErrorContract' {
         $env:SILMARIL_CLI_NAME = $previousCliName
       }
     }
+  }
+
+  It 'classifies invalid selector failures explicitly' {
+    $err = Get-SilmarilErrorContract -Command 'wait-for' -Message 'Invalid selector for wait-for: a[aria-label=Zoom In]'
+
+    $err.code | Should -Be 'INVALID_SELECTOR'
+    $err.hint | Should -Match 'quoting'
   }
 }
 

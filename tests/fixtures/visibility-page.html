@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Silmaril Visibility Fixture</title>
+  <style>
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main id="app">
+    <h1 id="title">Visibility Fixture</h1>
+
+    <section id="cards">
+      <a class="photo-link hidden" href="/photos/hidden">Hidden photo</a>
+      <a class="photo-link" href="/photos/1">Visible photo 1</a>
+      <a class="photo-link" href="/photos/2">Visible photo 2</a>
+    </section>
+
+    <section id="controls">
+      <button class="dup-button hidden">Hidden Action</button>
+      <button class="dup-button" id="visible-action" onclick="document.getElementById('action-status').textContent='Visible Clicked';">Visible Action</button>
+      <p id="action-status">Idle</p>
+    </section>
+
+    <section id="inputs">
+      <label for="visible-input">Visible Input</label>
+      <input class="dup-input hidden" value="">
+      <input class="dup-input" id="visible-input" type="text" value="">
+    </section>
+
+    <button id="load-more" onclick="loadMore()">Load more</button>
+  </main>
+
+  <script>
+    function loadMore() {
+      var cards = document.getElementById('cards');
+      var nextIndex = cards.querySelectorAll('a.photo-link').length;
+      for (var i = 0; i < 3; i += 1) {
+        var link = document.createElement('a');
+        link.className = 'photo-link';
+        link.href = '/photos/' + (nextIndex + i);
+        link.textContent = 'Visible photo ' + (nextIndex + i);
+        cards.appendChild(link);
+      }
+    }
+  </script>
+</body>
+</html>

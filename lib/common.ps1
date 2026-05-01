@@ -613,6 +613,12 @@ function Get-SilmarilErrorContract {
   $hint = "Review command output and retry."
 
   if (
+    $errorMessage -match "Invalid selector"
+  ) {
+    $code = "INVALID_SELECTOR"
+    $hint = "Verify CSS selector syntax and quoting."
+  }
+  elseif (
     $errorMessage -match "requires" -or
     $errorMessage -match "Unsupported" -or
     $errorMessage -match "must be" -or
@@ -1426,6 +1432,316 @@ function Add-SilmarilSelectorResolutionMetadata {
   return $Data
 }
 
+function Get-SilmarilRuntimeRecoveryMetadata {
+  param(
+    [AllowNull()]
+    [object]$InputObject
+  )
+
+  if ($null -eq $InputObject) {
+    return $null
+  }
+
+  if ($InputObject -is [System.Collections.IDictionary]) {
+    if ($InputObject.Contains('silmarilRecovery')) {
+      return $InputObject['silmarilRecovery']
+    }
+    return $null
+  }
+
+  $properties = @(Get-SilmarilPropertyNames -InputObject $InputObject)
+  if ($properties -contains 'silmarilRecovery') {
+    return $InputObject.silmarilRecovery
+  }
+
+  return $null
+}
+
+function Add-SilmarilRuntimeRecoveryMetadata {
+  param(
+    [object]$Data = @{},
+    [AllowNull()]
+    [object]$InputObject
+  )
+
+  if ($null -eq $Data) {
+    $Data = [ordered]@{}
+  }
+  elseif (-not ($Data -is [System.Collections.IDictionary])) {
+    $normalizedData = [ordered]@{}
+    foreach ($name in @(Get-SilmarilPropertyNames -InputObject $Data)) {
+      $normalizedData[$name] = $Data.$name
+    }
+    $Data = $normalizedData
+  }
+
+  $recovery = Get-SilmarilRuntimeRecoveryMetadata -InputObject $InputObject
+  if ($null -eq $recovery) {
+    return $Data
+  }
+
+  $recoveryProps = @(Get-SilmarilPropertyNames -InputObject $recovery)
+  if (($recoveryProps -contains 'retriedAfterTargetRefresh') -and [bool]$recovery.retriedAfterTargetRefresh) {
+    $Data['retriedAfterTargetRefresh'] = $true
+  }
+  if (($recoveryProps -contains 'initialResolvedTargetId') -and -not [string]::IsNullOrWhiteSpace([string]$recovery.initialResolvedTargetId)) {
+    $Data['initialResolvedTargetId'] = [string]$recovery.initialResolvedTargetId
+  }
+  if (($recoveryProps -contains 'finalResolvedTargetId') -and -not [string]::IsNullOrWhiteSpace([string]$recovery.finalResolvedTargetId)) {
+    $Data['finalResolvedTargetId'] = [string]$recovery.finalResolvedTargetId
+  }
+  if (($recoveryProps -contains 'targetRefreshReason') -and -not [string]::IsNullOrWhiteSpace([string]$recovery.targetRefreshReason)) {
+    $Data['targetRefreshReason'] = [string]$recovery.targetRefreshReason
+  }
+
+  return $Data
+}
+
+function Test-SilmarilRecoverableRuntimeErrorMessage {
+  param(
+    [string]$Message
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Message)) {
+    return $false
+  }
+
+  return (
+    $Message -match 'Execution context was destroyed' -or
+    $Message -match 'Cannot find context with specified id' -or
+    $Message -match 'Inspected target navigated or closed' -or
+    $Message -match 'Target closed' -or
+    $Message -match 'No target with given id found'
+  )
+}
+
+function Get-SilmarilDomSupportScript {
+  return @"
+var silmarilClean = function(value){
+  return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+};
+var silmarilIsVisible = function(el){
+  if (!el || !el.isConnected) return false;
+  var style = window.getComputedStyle(el);
+  if (!style) return false;
+  if (style.display === 'none') return false;
+  if (style.visibility === 'hidden' || style.visibility === 'collapse') return false;
+  if (parseFloat(style.opacity || '1') === 0) return false;
+  var rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+};
+var silmarilGetRole = function(el){
+  if (!el) return '';
+  var explicitRole = silmarilClean(el.getAttribute && el.getAttribute('role'));
+  if (explicitRole) return explicitRole.toLowerCase();
+  var tag = (el.tagName || '').toLowerCase();
+  if (tag === 'a' && el.hasAttribute && el.hasAttribute('href')) return 'link';
+  if (tag === 'button') return 'button';
+  if (tag === 'input') {
+    var inputType = silmarilClean(el.getAttribute && el.getAttribute('type'));
+    inputType = inputType ? inputType.toLowerCase() : 'text';
+    if (inputType === 'button' || inputType === 'submit' || inputType === 'reset') return 'button';
+    if (inputType === 'checkbox') return 'checkbox';
+    if (inputType === 'radio') return 'radio';
+    return 'textbox';
+  }
+  if (tag === 'textarea') return 'textbox';
+  if (tag === 'select') return 'combobox';
+  if (/^h[1-6]$/.test(tag)) return 'heading';
+  return '';
+};
+var silmarilGetLabel = function(el){
+  if (!el) return '';
+  var ariaLabel = silmarilClean(el.getAttribute && el.getAttribute('aria-label'));
+  if (ariaLabel) return ariaLabel;
+  var labelledBy = silmarilClean(el.getAttribute && el.getAttribute('aria-labelledby'));
+  if (labelledBy) {
+    var parts = labelledBy.split(/\s+/).map(function(id){
+      var ref = document.getElementById(id);
+      return silmarilClean(ref ? (ref.innerText || ref.textContent) : '');
+    }).filter(Boolean);
+    if (parts.length > 0) return silmarilClean(parts.join(' '));
+  }
+  if (typeof el.labels !== 'undefined' && el.labels && el.labels.length > 0) {
+    var labelParts = Array.from(el.labels).map(function(labelEl){
+      return silmarilClean(labelEl.innerText || labelEl.textContent);
+    }).filter(Boolean);
+    if (labelParts.length > 0) return silmarilClean(labelParts.join(' '));
+  }
+  var alt = silmarilClean(el.getAttribute && el.getAttribute('alt'));
+  if (alt) return alt;
+  var placeholder = silmarilClean(el.getAttribute && el.getAttribute('placeholder'));
+  if (placeholder) return placeholder;
+  var title = silmarilClean(el.getAttribute && el.getAttribute('title'));
+  if (title) return title;
+  return silmarilClean(typeof el.innerText === 'string' ? el.innerText : el.textContent);
+};
+var silmarilDescribeElement = function(el){
+  if (!el) return null;
+  var style = null;
+  try { style = window.getComputedStyle(el); } catch (_) {}
+  var rect = null;
+  try { rect = el.getBoundingClientRect(); } catch (_) {}
+  var disabled = false;
+  try {
+    disabled = !!el.disabled || silmarilClean(el.getAttribute && el.getAttribute('aria-disabled')).toLowerCase() === 'true';
+  } catch (_) {}
+  return {
+    tag: el.tagName ? String(el.tagName).toLowerCase() : '',
+    role: silmarilGetRole(el),
+    label: silmarilGetLabel(el),
+    visible: silmarilIsVisible(el),
+    disabled: disabled,
+    pointerEvents: style ? String(style.pointerEvents || '') : '',
+    text: silmarilClean(typeof el.innerText === 'string' ? el.innerText : el.textContent),
+    rect: rect ? {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height)
+    } : null
+  };
+};
+var silmarilResolveRoot = function(rootSelector){
+  if (!rootSelector) {
+    return { ok: true, root: document };
+  }
+  try {
+    var rootEl = document.querySelector(rootSelector);
+    if (!rootEl) {
+      return { ok: false, reason: 'root_not_found', rootSelector: rootSelector };
+    }
+    return { ok: true, root: rootEl };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'invalid_root_selector',
+      rootSelector: rootSelector,
+      message: String((error && error.message) ? error.message : error)
+    };
+  }
+};
+var silmarilCollectSelectorStats = function(root, selector){
+  try {
+    var nodes = Array.from(root.querySelectorAll(selector));
+    var visibleNodes = nodes.filter(function(node){ return silmarilIsVisible(node); });
+    return {
+      ok: true,
+      selector: selector,
+      nodes: nodes,
+      visibleNodes: visibleNodes,
+      matchedCount: nodes.length,
+      visibleCount: visibleNodes.length
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'invalid_selector',
+      selector: selector,
+      message: String((error && error.message) ? error.message : error)
+    };
+  }
+};
+"@
+}
+
+function New-SilmarilSelectorStructuredErrorMessage {
+  param(
+    [string]$CommandName,
+    [string]$InputSelector,
+    [string]$NormalizedSelector = '',
+    [string]$DetailMessage = '',
+    [hashtable]$Extra = @{}
+  )
+
+  $message = "Invalid selector for ${CommandName}: $InputSelector"
+  if (-not [string]::IsNullOrWhiteSpace($DetailMessage)) {
+    $message = "$message. $DetailMessage"
+  }
+
+  $payload = [ordered]@{
+    code               = 'INVALID_SELECTOR'
+    message            = $message
+    hint               = 'Verify CSS selector syntax and quoting.'
+    inputSelector      = $InputSelector
+    normalizedSelector = $NormalizedSelector
+  }
+
+  foreach ($key in @($Extra.Keys)) {
+    $payload[$key] = $Extra[$key]
+  }
+
+  return (New-SilmarilStructuredErrorMessage -Payload $payload)
+}
+
+function New-SilmarilActionabilityStructuredErrorMessage {
+  param(
+    [string]$CommandName,
+    [string]$InputSelector,
+    [string]$NormalizedSelector = '',
+    [string]$Reason = '',
+    [AllowNull()]
+    [object]$Actionability = $null
+  )
+
+  $message = switch ($Reason) {
+    'not_visible' { "No visible element matched selector for ${CommandName}: $InputSelector" }
+    'disabled' { "Matched element is disabled for ${CommandName}: $InputSelector" }
+    'not_actionable' { "Matched element is not actionable for ${CommandName}: $InputSelector" }
+    'not_editable' { "Matched element is not editable for ${CommandName}: $InputSelector" }
+    default { "Element failed actionability checks for ${CommandName}: $InputSelector" }
+  }
+
+  $payload = [ordered]@{
+    code               = 'ACTIONABILITY_FAILED'
+    message            = $message
+    hint               = 'Refine the selector or use query --visible-only / snapshot to target the visible interactive element.'
+    inputSelector      = $InputSelector
+    normalizedSelector = $NormalizedSelector
+    actionabilityReason = $Reason
+  }
+
+  if ($null -ne $Actionability) {
+    $payload['actionability'] = $Actionability
+  }
+
+  return (New-SilmarilStructuredErrorMessage -Payload $payload)
+}
+
+function New-SilmarilCountStructuredErrorMessage {
+  param(
+    [string]$CommandName,
+    [string]$InputSelector,
+    [string]$NormalizedSelector = '',
+    [int]$MinCount,
+    [int]$ActualCount,
+    [int]$MatchedCount,
+    [int]$VisibleCount,
+    [bool]$VisibleOnly = $false,
+    [string]$RootSelector = ''
+  )
+
+  $countLabel = if ($VisibleOnly) { 'visible matches' } else { 'matches' }
+  $payload = [ordered]@{
+    code               = 'COUNT_BELOW_MIN'
+    message            = "$CommandName returned $ActualCount $countLabel for selector: $InputSelector. Expected at least $MinCount."
+    hint               = 'Use a broader selector, remove --visible-only, or wait for more content to load.'
+    inputSelector      = $InputSelector
+    normalizedSelector = $NormalizedSelector
+    minCount           = $MinCount
+    actualCount        = $ActualCount
+    matchedCount       = $MatchedCount
+    visibleCount       = $VisibleCount
+    visibleOnly        = $VisibleOnly
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($RootSelector)) {
+    $payload['rootSelector'] = $RootSelector
+  }
+
+  return (New-SilmarilStructuredErrorMessage -Payload $payload)
+}
+
 function ConvertTo-SilmarilTargetCandidate {
   param(
     [object]$Target,
@@ -1543,7 +1859,7 @@ function Normalize-SilmarilSelector {
   $normalized = $normalized.Replace([char]0x2018, "'").Replace([char]0x2019, "'")
   $normalized = $normalized.Replace([char]0x201C, '"').Replace([char]0x201D, '"')
 
-  $pattern = '\[(?<name>[^\]\s~\|\^\$\*=]+)(?<before>\s*)(?<op>[~\|\^\$\*]?=)(?<after>\s*)(?<value>[^\]\s"''`]+)\]'
+  $pattern = '\[(?<name>[^\]\s~\|\^\$\*=]+)(?<before>\s*)(?<op>[~\|\^\$\*]?=)(?<after>\s*)(?<value>[^\]]+?)\]'
   $normalized = [regex]::Replace(
     $normalized,
     $pattern,
@@ -1555,16 +1871,17 @@ function Normalize-SilmarilSelector {
       $op = [string]$match.Groups["op"].Value
       $after = [string]$match.Groups["after"].Value
       $value = [string]$match.Groups["value"].Value
+      $trimmedValue = $value.Trim()
 
-      if ([string]::IsNullOrWhiteSpace($value)) {
+      if ([string]::IsNullOrWhiteSpace($trimmedValue)) {
         return $match.Value
       }
 
-      if ($value.StartsWith('"') -or $value.StartsWith("'")) {
+      if ($trimmedValue.StartsWith('"') -or $trimmedValue.StartsWith("'")) {
         return $match.Value
       }
 
-      $escapedValue = $value.Replace('\', '\\').Replace('"', '\"')
+      $escapedValue = $trimmedValue.Replace('\', '\\').Replace('"', '\"')
       return "[{0}{1}{2}{3}`"{4}`"]" -f $name, $before, $op, $after, $escapedValue
     }
   )
@@ -2391,7 +2708,12 @@ function Invoke-SilmarilRuntimeEvaluate {
   param(
     [psobject]$Target,
     [string]$Expression,
-    [int]$TimeoutSec = 20
+    [int]$TimeoutSec = 20,
+    [int]$Port = 9222,
+    [string]$TargetId = $null,
+    [string]$UrlMatch = $null,
+    [switch]$AllowTargetRefresh,
+    [switch]$IgnoreSessionStateOnRefresh
   )
 
   if ([string]::IsNullOrWhiteSpace($Expression)) {
@@ -2400,24 +2722,49 @@ function Invoke-SilmarilRuntimeEvaluate {
 
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
   $lastError = $null
+  $refreshedTarget = $false
+  $recovery = [ordered]@{
+    retriedAfterTargetRefresh = $false
+    initialResolvedTargetId   = if ($null -ne $Target) { [string]$Target.id } else { '' }
+    finalResolvedTargetId     = if ($null -ne $Target) { [string]$Target.id } else { '' }
+    targetRefreshReason       = ''
+  }
   while ([DateTime]::UtcNow -lt $deadline) {
     try {
-      return Invoke-SilmarilCdpCommand -Target $Target -Method "Runtime.evaluate" -Params @{
+      $result = Invoke-SilmarilCdpCommand -Target $Target -Method "Runtime.evaluate" -Params @{
         expression    = $Expression
         returnByValue = $true
         awaitPromise  = $true
       } -TimeoutSec $TimeoutSec
+      if ($recovery.retriedAfterTargetRefresh) {
+        $result | Add-Member -NotePropertyName silmarilRecovery -NotePropertyValue ([pscustomobject]$recovery) -Force
+      }
+      return $result
     }
     catch {
       $lastError = $_.Exception
       $message = [string]$lastError.Message
-      $isTransient = (
-        $message -match "Execution context was destroyed" -or
-        $message -match "Cannot find context with specified id"
-      )
+      $isTransient = (Test-SilmarilRecoverableRuntimeErrorMessage -Message $message)
 
       if (-not $isTransient) {
         throw
+      }
+
+      if ($AllowTargetRefresh -and -not $refreshedTarget) {
+        try {
+          $refreshedContext = Resolve-SilmarilPageTarget -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -IgnoreSessionState:$IgnoreSessionStateOnRefresh
+          if ($null -ne $refreshedContext -and $null -ne $refreshedContext.Target) {
+            $Target = $refreshedContext.Target
+            $refreshedTarget = $true
+            $recovery.retriedAfterTargetRefresh = $true
+            $recovery.finalResolvedTargetId = [string]$refreshedContext.ResolvedTargetId
+            $recovery.targetRefreshReason = $message
+            Write-SilmarilTrace -Message ("runtime-evaluate target refresh command=Runtime.evaluate from={0} to={1} reason={2}" -f [string]$recovery.initialResolvedTargetId, [string]$recovery.finalResolvedTargetId, $message)
+          }
+        }
+        catch {
+          Write-SilmarilTrace -Message ("runtime-evaluate target refresh failed: {0}" -f $_.Exception.Message)
+        }
       }
 
       Start-Sleep -Milliseconds 150
@@ -2525,65 +2872,6 @@ function Invoke-SilmarilVisualCursorCue {
 
   var clamp = function(value, min, max){
     return Math.min(max, Math.max(min, value));
-  };
-
-  var dispatchInput = function(target, ch){
-    try {
-      if (typeof InputEvent === 'function') {
-        target.dispatchEvent(new InputEvent('input', {
-          bubbles: true,
-          data: ch,
-          inputType: 'insertText'
-        }));
-        return;
-      }
-    } catch (_) {}
-
-    target.dispatchEvent(new Event('input', { bubbles: true }));
-  };
-
-  var placeCaretAtEnd = function(target){
-    try {
-      if ('value' in target && typeof target.setSelectionRange === 'function') {
-        var n = String(target.value || '').length;
-        target.setSelectionRange(n, n);
-        return;
-      }
-    } catch (_) {}
-
-    try {
-      if (target.isContentEditable) {
-        var selection = window.getSelection();
-        if (!selection) return;
-        var range = document.createRange();
-        range.selectNodeContents(target);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
-    } catch (_) {}
-  };
-
-  var setEditableValue = function(target, value){
-    if ('value' in target) {
-      target.value = value;
-      placeCaretAtEnd(target);
-      return;
-    }
-
-    target.textContent = value;
-    placeCaretAtEnd(target);
-  };
-
-  var appendEditableChar = function(target, ch){
-    if ('value' in target) {
-      target.value = String(target.value || '') + ch;
-      placeCaretAtEnd(target);
-      return;
-    }
-
-    target.textContent = String(target.textContent || '') + ch;
-    placeCaretAtEnd(target);
   };
 
   var getTypingDelay = function(ch, index){
@@ -2719,19 +3007,14 @@ function Invoke-SilmarilVisualCursorCue {
       el.style.caretColor = '#2563eb';
       restoreCaretColor = true;
 
-      setEditableValue(el, '');
-      dispatchInput(el, '');
       cursor.style.opacity = '0';
       pulse.classList.add('silmaril-visual-pulse--active');
 
       for (var idx = 0; idx < typedText.length; idx++) {
         var ch = typedText.charAt(idx);
-        appendEditableChar(el, ch);
-        dispatchInput(el, ch);
         await wait(getTypingDelay(ch, idx));
       }
 
-      el.dispatchEvent(new Event('change', { bubbles: true }));
       await wait(260);
 
       return {
@@ -2791,13 +3074,18 @@ function Invoke-SilmarilSelectorWait {
   param(
     [psobject]$Target,
     [string[]]$Selectors,
-    [ValidateSet("visible", "gone", "any-visible")]
+    [ValidateSet("visible", "gone", "any-visible", "count", "visible-count")]
     [string]$Mode,
     [int]$TimeoutMs = 10000,
     [int]$PollMs = 200,
     [switch]$IncludeCounts,
     [string]$CommandName = "wait",
-    [int]$TimeoutSec = 0
+    [int]$TimeoutSec = 0,
+    [int]$MinCount = 1,
+    [string]$RootSelector = $null,
+    [int]$Port = 9222,
+    [string]$TargetId = $null,
+    [string]$UrlMatch = $null
   )
 
   $selectorList = @($Selectors | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
@@ -2812,12 +3100,18 @@ function Invoke-SilmarilSelectorWait {
   if ($PollMs -lt 50) {
     throw "PollMs must be >= 50."
   }
+  if ($MinCount -lt 1) {
+    throw "MinCount must be >= 1."
+  }
 
   $selectorsJs = ConvertTo-Json -Compress -InputObject @($selectorList)
   $modeJs = $Mode | ConvertTo-Json -Compress
   $timeoutJs = [string]$TimeoutMs
   $pollJs = [string]$PollMs
   $includeCountsJs = if ($IncludeCounts) { "true" } else { "false" }
+  $minCountJs = [string]$MinCount
+  $rootSelectorJs = if ([string]::IsNullOrWhiteSpace($RootSelector)) { 'null' } else { $RootSelector | ConvertTo-Json -Compress }
+  $domSupport = Get-SilmarilDomSupportScript
 
   $expression = @"
 (async function(){
@@ -2826,99 +3120,125 @@ function Invoke-SilmarilSelectorWait {
   var includeCounts = $includeCountsJs;
   var timeoutMs = $timeoutJs;
   var intervalMs = $pollJs;
+  var minCount = $minCountJs;
+  var rootSelector = $rootSelectorJs;
   var started = Date.now();
+$domSupport
 
-  var isVisible = function(el){
-    if (!el || !el.isConnected) return false;
-    var style = window.getComputedStyle(el);
-    if (!style) return false;
-    if (style.display === 'none') return false;
-    if (style.visibility === 'hidden' || style.visibility === 'collapse') return false;
-    if (parseFloat(style.opacity || '1') === 0) return false;
-    var rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  };
-
-  var collectCounts = function(){
-    var out = {};
+  var collectCounts = function(root){
+    var matchedCounts = {};
+    var visibleCounts = {};
     for (var i = 0; i < sels.length; i++) {
       var sel = sels[i];
-      try {
-        out[sel] = document.querySelectorAll(sel).length;
-      } catch (_) {
-        out[sel] = -1;
+      var stats = silmarilCollectSelectorStats(root, sel);
+      if (!stats.ok) {
+        matchedCounts[sel] = -1;
+        visibleCounts[sel] = -1;
+        continue;
       }
+      matchedCounts[sel] = stats.matchedCount;
+      visibleCounts[sel] = stats.visibleCount;
     }
-    return out;
+    return {
+      counts: matchedCounts,
+      visibleCounts: visibleCounts
+    };
   };
 
   while ((Date.now() - started) <= timeoutMs) {
+    var rootState = silmarilResolveRoot(rootSelector);
+    if (!rootState.ok) {
+      rootState.elapsedMs = Date.now() - started;
+      return rootState;
+    }
+
+    var root = rootState.root;
     if (mode === 'visible' || mode === 'any-visible') {
       for (var i = 0; i < sels.length; i++) {
         var sel = sels[i];
-        var nodes = null;
-        try {
-          nodes = document.querySelectorAll(sel);
-        } catch (e) {
-          return {
-            ok: false,
-            reason: 'invalid_selector',
-            selector: sel,
-            message: String((e && e.message) ? e.message : e),
-            elapsedMs: Date.now() - started
-          };
+        var stats = silmarilCollectSelectorStats(root, sel);
+        if (!stats.ok) {
+          stats.elapsedMs = Date.now() - started;
+          return stats;
         }
 
-        for (var j = 0; j < nodes.length; j++) {
-          if (isVisible(nodes[j])) {
-            var payload = {
-              ok: true,
-              matchedSelector: sel,
-              elapsedMs: Date.now() - started
-            };
-            if (includeCounts) {
-              payload.counts = collectCounts();
-            }
-            return payload;
+        if (stats.visibleCount > 0) {
+          var payload = {
+            ok: true,
+            matchedSelector: sel,
+            matchedCount: stats.matchedCount,
+            visibleCount: stats.visibleCount,
+            matchedVisibleCount: stats.visibleCount,
+            elapsedMs: Date.now() - started
+          };
+          if (rootSelector) {
+            payload.rootSelector = rootSelector;
           }
+          if (includeCounts) {
+            var countsPayload = collectCounts(root);
+            payload.counts = countsPayload.counts;
+            payload.visibleCounts = countsPayload.visibleCounts;
+          }
+          return payload;
         }
+      }
+    }
+    else if (mode === 'count' || mode === 'visible-count') {
+      var targetSelector = sels[0];
+      var countStats = silmarilCollectSelectorStats(root, targetSelector);
+      if (!countStats.ok) {
+        countStats.elapsedMs = Date.now() - started;
+        return countStats;
+      }
+
+      var actualCount = mode === 'visible-count' ? countStats.visibleCount : countStats.matchedCount;
+      if (actualCount >= minCount) {
+        var countPayload = {
+          ok: true,
+          matchedSelector: targetSelector,
+          matchedCount: countStats.matchedCount,
+          visibleCount: countStats.visibleCount,
+          actualCount: actualCount,
+          minCount: minCount,
+          elapsedMs: Date.now() - started
+        };
+        if (rootSelector) {
+          countPayload.rootSelector = rootSelector;
+        }
+        if (includeCounts || mode === 'count' || mode === 'visible-count') {
+          var countPayloadCounts = collectCounts(root);
+          countPayload.counts = countPayloadCounts.counts;
+          countPayload.visibleCounts = countPayloadCounts.visibleCounts;
+        }
+        return countPayload;
       }
     }
     else if (mode === 'gone') {
       var allGone = true;
       for (var k = 0; k < sels.length; k++) {
         var selGone = sels[k];
-        var nodesGone = null;
-        try {
-          nodesGone = document.querySelectorAll(selGone);
-        } catch (e2) {
-          return {
-            ok: false,
-            reason: 'invalid_selector',
-            selector: selGone,
-            message: String((e2 && e2.message) ? e2.message : e2),
-            elapsedMs: Date.now() - started
-          };
+        var goneStats = silmarilCollectSelectorStats(root, selGone);
+        if (!goneStats.ok) {
+          goneStats.elapsedMs = Date.now() - started;
+          return goneStats;
         }
 
-        for (var p = 0; p < nodesGone.length; p++) {
-          if (isVisible(nodesGone[p])) {
-            allGone = false;
-            break;
-          }
-        }
-
-        if (!allGone) {
+        if (goneStats.visibleCount > 0) {
+          allGone = false;
           break;
         }
       }
 
       if (allGone) {
-        return {
+        var gonePayload = {
           ok: true,
           elapsedMs: Date.now() - started,
           selectors: sels
         };
+        if (rootSelector) {
+          gonePayload.rootSelector = rootSelector;
+        }
+        return gonePayload;
       }
     }
     else {
@@ -2939,8 +3259,18 @@ function Invoke-SilmarilSelectorWait {
     elapsedMs: Date.now() - started,
     selectors: sels
   };
-  if (includeCounts) {
-    timeoutPayload.counts = collectCounts();
+  if (rootSelector) {
+    timeoutPayload.rootSelector = rootSelector;
+  }
+  if (includeCounts || mode === 'count' || mode === 'visible-count') {
+    var timeoutRootState = silmarilResolveRoot(rootSelector);
+    if (!timeoutRootState.ok) {
+      timeoutRootState.elapsedMs = Date.now() - started;
+      return timeoutRootState;
+    }
+    var timeoutCounts = collectCounts(timeoutRootState.root);
+    timeoutPayload.counts = timeoutCounts.counts;
+    timeoutPayload.visibleCounts = timeoutCounts.visibleCounts;
   }
   return timeoutPayload;
 })()
@@ -2951,8 +3281,13 @@ function Invoke-SilmarilSelectorWait {
     $effectiveTimeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $TimeoutMs -PaddingMs 5000 -MinSeconds 20
   }
 
-  $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $effectiveTimeoutSec
-  return Get-SilmarilEvalValue -EvalResult $evalResult -CommandName $CommandName
+  $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $effectiveTimeoutSec -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -AllowTargetRefresh
+  $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName $CommandName
+  $recovery = Get-SilmarilRuntimeRecoveryMetadata -InputObject $evalResult
+  if ($null -ne $recovery) {
+    $value | Add-Member -NotePropertyName silmarilRecovery -NotePropertyValue $recovery -Force
+  }
+  return $value
 }
 
 function Test-SilmarilJsonOutput {

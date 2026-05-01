@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -113,18 +113,44 @@ $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -
 $selector = [string]$selectorResolution.resolvedSelector
 $selectorJs = $selector | ConvertTo-Json -Compress
 $textJs = $textValue | ConvertTo-Json -Compress
+$domSupport = Get-SilmarilDomSupportScript
 $expression = @"
 (async function(){
   var sel = $selectorJs;
   var txt = $textJs;
-  var el = document.querySelector(sel);
-  if (!el) return { ok: false, reason: 'not_found' };
-  var tag = (el.tagName || '').toLowerCase();
-  var isEditable = !!el.isContentEditable || tag === 'input' || tag === 'textarea';
-  if (!isEditable) return { ok: false, reason: 'not_editable' };
-  if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); }
-  if (typeof el.focus === 'function') { el.focus(); }
-  var previousValue = ('value' in el) ? String(el.value || '') : String(el.textContent || '');
+$domSupport
+  var isEditable = function(el){
+    if (!el) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    return !!el.isContentEditable || tag === 'input' || tag === 'textarea';
+  };
+
+  var stats = silmarilCollectSelectorStats(document, sel);
+  if (!stats.ok) {
+    return stats;
+  }
+
+  var visibleEditableNodes = stats.visibleNodes.filter(function(node){ return isEditable(node); });
+  var firstMatch = stats.matchedCount > 0 ? silmarilDescribeElement(stats.nodes[0]) : null;
+  var chosen = visibleEditableNodes.length > 0 ? visibleEditableNodes[0] : null;
+  if (!chosen) {
+    return {
+      ok: false,
+      reason: stats.visibleCount > 0 ? 'not_editable' : (stats.matchedCount > 0 ? 'not_visible' : 'not_found'),
+      actionability: {
+        matchedCount: stats.matchedCount,
+        visibleCount: stats.visibleCount,
+        editableVisibleCount: visibleEditableNodes.length,
+        firstMatch: firstMatch
+      }
+    };
+  }
+
+  var descriptor = silmarilDescribeElement(chosen);
+  var tag = (chosen.tagName || '').toLowerCase();
+  if (typeof chosen.scrollIntoView === 'function') { chosen.scrollIntoView({block:'center', inline:'center'}); }
+  if (typeof chosen.focus === 'function') { chosen.focus(); }
+  var previousValue = ('value' in chosen) ? String(chosen.value || '') : String(chosen.textContent || '');
 
   var waitForDomFlush = async function(){
     try {
@@ -142,7 +168,7 @@ $expression = @"
   var dispatchEditableEvent = function(name, inputType){
     try {
       if (typeof window.InputEvent === 'function' && (name === 'beforeinput' || name === 'input')) {
-        el.dispatchEvent(new InputEvent(name, {
+        chosen.dispatchEvent(new InputEvent(name, {
           bubbles: true,
           composed: true,
           cancelable: name === 'beforeinput',
@@ -152,7 +178,7 @@ $expression = @"
         return;
       }
     } catch (_) {}
-    el.dispatchEvent(new Event(name, { bubbles: true, composed: true }));
+    chosen.dispatchEvent(new Event(name, { bubbles: true, composed: true }));
   };
 
   var setNativeValue = function(node, nextValue){
@@ -178,9 +204,9 @@ $expression = @"
       var proto = prototypeChain[i];
       if (!proto) continue;
       try {
-        var descriptor = Object.getOwnPropertyDescriptor(proto, 'value');
-        if (descriptor && typeof descriptor.set === 'function') {
-          descriptor.set.call(node, nextValue);
+        var descriptorValue = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (descriptorValue && typeof descriptorValue.set === 'function') {
+          descriptorValue.set.call(node, nextValue);
           return true;
         }
       } catch (_) {}
@@ -197,32 +223,49 @@ $expression = @"
   var inputType = previousValue.length > 0 ? 'insertReplacementText' : 'insertText';
   dispatchEditableEvent('beforeinput', inputType);
 
-  if ('value' in el) {
-    if (!setNativeValue(el, txt)) {
-      return { ok: false, reason: 'not_editable' };
+  if ('value' in chosen) {
+    if (!setNativeValue(chosen, txt)) {
+      return {
+        ok: false,
+        reason: 'not_editable',
+        actionability: {
+          matchedCount: stats.matchedCount,
+          visibleCount: stats.visibleCount,
+          editableVisibleCount: visibleEditableNodes.length,
+          chosenElement: descriptor,
+          firstMatch: firstMatch
+        }
+      };
     }
-    if (typeof el.setSelectionRange === 'function') {
+    if (typeof chosen.setSelectionRange === 'function') {
       try {
-        var n = el.value.length;
-        el.setSelectionRange(n, n);
+        var n = chosen.value.length;
+        chosen.setSelectionRange(n, n);
       } catch (_) {}
     }
   } else {
-    el.textContent = txt;
+    chosen.textContent = txt;
   }
 
   dispatchEditableEvent('input', inputType);
   dispatchEditableEvent('change');
   await waitForDomFlush();
 
-  var finalValue = ('value' in el) ? String(el.value || '') : String(el.textContent || '');
+  var finalValue = ('value' in chosen) ? String(chosen.value || '') : String(chosen.textContent || '');
   if (finalValue !== txt) {
     return {
       ok: false,
       reason: 'value_mismatch',
       expected: txt,
       actual: finalValue,
-      previousValue: previousValue
+      previousValue: previousValue,
+      actionability: {
+        matchedCount: stats.matchedCount,
+        visibleCount: stats.visibleCount,
+        editableVisibleCount: visibleEditableNodes.length,
+        chosenElement: descriptor,
+        firstMatch: firstMatch
+      }
     };
   }
 
@@ -230,7 +273,14 @@ $expression = @"
     ok: true,
     previousValue: previousValue,
     value: finalValue,
-    inputType: inputType
+    inputType: inputType,
+    actionability: {
+      matchedCount: stats.matchedCount,
+      visibleCount: stats.visibleCount,
+      editableVisibleCount: visibleEditableNodes.length,
+      chosenElement: descriptor,
+      firstMatch: firstMatch
+    }
   };
 })()
 "@
@@ -244,7 +294,7 @@ if ($visualCursor) {
     Write-SilmarilTrace -Message ("Visual cursor cue failed for type selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)
   }
 }
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "type"
 if ($null -eq $value) {
   throw "type result value is null."
@@ -252,11 +302,12 @@ if ($null -eq $value) {
 
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "type" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
+  }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
     throw "No element matched selector: $selectorInput"
-  }
-  if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_editable") {
-    throw "Element is not editable for selector: $selectorInput"
   }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "value_mismatch") {
     $expectedText = if ($valueProps -contains "expected") { [string]$value.expected } else { $textValue }
@@ -264,33 +315,41 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
     throw ("Typed value did not stick for selector: {0}. Expected '{1}' but found '{2}'." -f $selectorInput, $expectedText, $actualText)
   }
 
-  throw "type failed for selector: $selectorInput"
+  $actionability = if (($valueProps -contains "actionability") -and $null -ne $value.actionability) { $value.actionability } else { $null }
+  $reason = if (($valueProps -contains "reason") -and $null -ne $value.reason) { [string]$value.reason } else { "not_editable" }
+  throw (New-SilmarilActionabilityStructuredErrorMessage -CommandName "type" -InputSelector $selectorInput -NormalizedSelector $selector -Reason $reason -Actionability $actionability)
 }
 
 $data = [ordered]@{
-  selector    = $selectorInput
+  selector           = $selectorInput
   normalizedSelector = $selector
-  inputMode   = $inputMode
-  bytes       = $payloadBytes
-  visualCursor = $visualCursor
-  port        = $port
-  targetId    = $targetId
-  urlMatch    = $urlMatch
+  inputMode          = $inputMode
+  bytes              = $payloadBytes
+  visualCursor       = $visualCursor
+  port               = $port
+  targetId           = $targetId
+  urlMatch           = $urlMatch
 }
 
-if ($valueProps -contains "previousValue") {
+if (($valueProps -contains "previousValue") -and $null -ne $value.previousValue) {
   $data["previousValue"] = [string]$value.previousValue
 }
-if ($valueProps -contains "value") {
+if (($valueProps -contains "value") -and $null -ne $value.value) {
   $data["value"] = [string]$value.value
 }
-if ($valueProps -contains "inputType") {
+if (($valueProps -contains "inputType") -and $null -ne $value.inputType) {
   $data["inputType"] = [string]$value.inputType
+}
+if (($valueProps -contains "actionability") -and $null -ne $value.actionability) {
+  $data["actionability"] = $value.actionability
 }
 
 if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
   $data["filePath"] = $filePath
 }
 
-Write-SilmarilCommandResult -Command "type" -Text "Typed into selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data $data -Resolution $selectorResolution) -TargetContext $targetContext) -UseHost
+$data = Add-SilmarilRuntimeRecoveryMetadata -Data $data -InputObject $evalResult
+$data = Add-SilmarilSelectorResolutionMetadata -Data $data -Resolution $selectorResolution
+$data = Add-SilmarilTargetMetadata -Data $data -TargetContext $targetContext
 
+Write-SilmarilCommandResult -Command "type" -Text "Typed into selector: $selectorInput" -Data $data -UseHost

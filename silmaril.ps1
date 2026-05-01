@@ -30,7 +30,7 @@ function Show-Usage {
   Write-Host "  $cliName snapshot [--coverage viewport|content] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName get-dom [\"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName get-text \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--visible-only] [--min-count n] [--root \"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName exists \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName set-html \"selector\" (\"html\" | --html-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName set-text \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
@@ -38,6 +38,8 @@ function Show-Usage {
   Write-Host "  $cliName click \"selector\" --yes [--visual-cursor] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName scroll [\"selector\"] [--container \"selector\"] [--x n --y n | --left n --top n] [--behavior auto|smooth] [--block start|center|end|nearest] [--inline start|center|end|nearest] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
   Write-Host "  $cliName wait-for \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-count \"selector\" [--min-count n] [--root \"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-visible-count \"selector\" [--min-count n] [--root \"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  $cliName wait-for-any \"selector1\" \"selector2\" [\"selectorN\"...] [--counts] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  $cliName wait-for-gone \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  $cliName wait-until-js \"expression\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
@@ -143,6 +145,8 @@ try {
     "click" { Invoke-CommandScript -CommandName "click" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "scroll" { Invoke-CommandScript -CommandName "scroll" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-for" { Invoke-CommandScript -CommandName "wait-for" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "wait-for-count" { Invoke-CommandScript -CommandName "wait-for-count" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "wait-for-visible-count" { Invoke-CommandScript -CommandName "wait-for-visible-count" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-for-any" { Invoke-CommandScript -CommandName "wait-for-any" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-for-gone" { Invoke-CommandScript -CommandName "wait-for-gone" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "wait-until-js" { Invoke-CommandScript -CommandName "wait-until-js" -CommandArgs $commandArgs -JsonOutput $jsonOutput }

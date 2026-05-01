@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -29,7 +29,7 @@ $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -Url
 $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
-$value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "gone" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for-gone"
+$value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "gone" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for-gone" -Port $port -TargetId $targetId -UrlMatch $urlMatch
 if ($null -eq $value) {
   throw "wait-for-gone result value is null."
 }
@@ -37,11 +37,8 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
-    $message = "Invalid selector for wait-for-gone: $selectorInput"
-    if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) {
-      $message = "$message. $($value.message)"
-    }
-    throw $message
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "wait-for-gone" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
   }
 
   throw "Timed out waiting for selector to disappear: $selectorInput"
@@ -52,13 +49,19 @@ if (($valueProps -contains "elapsedMs") -and $null -ne $value.elapsedMs) {
   $elapsed = [int]$value.elapsedMs
 }
 
-Write-SilmarilCommandResult -Command "wait-for-gone" -Text "Selector gone: $selectorInput ($elapsed ms)" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{
-  selector  = $selectorInput
-  normalizedSelector = $selector
-  elapsedMs = $elapsed
-  port      = $port
-  timeoutMs = $timeoutMs
-  pollMs    = $pollMs
-  targetId  = $targetId
-  urlMatch  = $urlMatch
-} -Resolution $selectorResolution) -TargetContext $targetContext) -UseHost
+$resultData = [ordered]@{
+  selector            = $selectorInput
+  normalizedSelector  = $selector
+  elapsedMs           = $elapsed
+  port                = $port
+  timeoutMs           = $timeoutMs
+  pollMs              = $pollMs
+  targetId            = $targetId
+  urlMatch            = $urlMatch
+}
+
+$resultData = Add-SilmarilRuntimeRecoveryMetadata -Data $resultData -InputObject $value
+$resultData = Add-SilmarilSelectorResolutionMetadata -Data $resultData -Resolution $selectorResolution
+$resultData = Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext
+
+Write-SilmarilCommandResult -Command "wait-for-gone" -Text "Selector gone: $selectorInput ($elapsed ms)" -Data $resultData -UseHost

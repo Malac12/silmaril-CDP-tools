@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -29,21 +29,65 @@ $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
 $selectorJs = $selector | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return null; var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent; return txt == null ? '' : txt; })()"
+$domSupport = Get-SilmarilDomSupportScript
+$expression = @"
+(function(){
+  var sel = $selectorJs;
+$domSupport
+  var stats = silmarilCollectSelectorStats(document, sel);
+  if (!stats.ok) {
+    return stats;
+  }
+  var el = stats.visibleCount > 0 ? stats.visibleNodes[0] : (stats.matchedCount > 0 ? stats.nodes[0] : null);
+  if (!el) {
+    return null;
+  }
+  var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent;
+  return {
+    ok: true,
+    text: txt == null ? '' : String(txt),
+    matchedCount: stats.matchedCount,
+    visibleCount: stats.visibleCount
+  };
+})()
+"@
 
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-text"
 
 if ($null -eq $value) {
   throw "No element matched selector: $selectorInput"
 }
 
-Write-SilmarilCommandResult -Command "get-text" -Text ([string]$value) -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{
-  selector = $selectorInput
-  text     = [string]$value
-  port     = $port
-  targetId = $targetId
-  urlMatch = $urlMatch
+$valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
+if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "get-text" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
+  }
+
+  throw "get-text failed for selector: $selectorInput"
+}
+
+$textValue = if (($valueProps -contains "text") -and $null -ne $value.text) { [string]$value.text } else { [string]$value }
+$resultData = [ordered]@{
+  selector           = $selectorInput
   normalizedSelector = $selector
-} -Resolution $selectorResolution) -TargetContext $targetContext)
+  text               = $textValue
+  port               = $port
+  targetId           = $targetId
+  urlMatch           = $urlMatch
+}
+if (($valueProps -contains "matchedCount") -and $null -ne $value.matchedCount) {
+  $resultData["matchedCount"] = [int]$value.matchedCount
+}
+if (($valueProps -contains "visibleCount") -and $null -ne $value.visibleCount) {
+  $resultData["visibleCount"] = [int]$value.visibleCount
+}
+
+$resultData = Add-SilmarilRuntimeRecoveryMetadata -Data $resultData -InputObject $evalResult
+$resultData = Add-SilmarilSelectorResolutionMetadata -Data $resultData -Resolution $selectorResolution
+$resultData = Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext
+
+Write-SilmarilCommandResult -Command "get-text" -Text $textValue -Data $resultData

@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -29,17 +29,70 @@ $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
 $selectorJs = $selector | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; return !!document.querySelector(sel); })()"
+$domSupport = Get-SilmarilDomSupportScript
+$expression = @"
+(function(){
+  var sel = $selectorJs;
+$domSupport
+  var stats = silmarilCollectSelectorStats(document, sel);
+  if (!stats.ok) {
+    return stats;
+  }
+  return {
+    ok: true,
+    exists: stats.matchedCount > 0,
+    matchedCount: stats.matchedCount,
+    visibleCount: stats.visibleCount
+  };
+})()
+"@
 
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "exists"
-$exists = [bool]$value
-
-if ($exists) {
-  Write-SilmarilCommandResult -Command "exists" -Text "true" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{ selector = $selectorInput; normalizedSelector = $selector; exists = $true; port = $port; targetId = $targetId; urlMatch = $urlMatch } -Resolution $selectorResolution) -TargetContext $targetContext)
-  exit 0
+if ($null -eq $value) {
+  throw "exists result value is null."
 }
 
-Write-SilmarilCommandResult -Command "exists" -Text "false" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{ selector = $selectorInput; normalizedSelector = $selector; exists = $false; port = $port; targetId = $targetId; urlMatch = $urlMatch } -Resolution $selectorResolution) -TargetContext $targetContext)
+$valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
+if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "exists" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
+  }
+  throw "exists failed for selector: $selectorInput"
+}
+
+$exists = $false
+if (($valueProps -contains "exists") -and $null -ne $value.exists) {
+  $exists = [bool]$value.exists
+}
+else {
+  $exists = [bool]$value
+}
+
+$resultData = [ordered]@{
+  selector           = $selectorInput
+  normalizedSelector = $selector
+  exists             = $exists
+  port               = $port
+  targetId           = $targetId
+  urlMatch           = $urlMatch
+}
+if (($valueProps -contains "matchedCount") -and $null -ne $value.matchedCount) {
+  $resultData["matchedCount"] = [int]$value.matchedCount
+}
+if (($valueProps -contains "visibleCount") -and $null -ne $value.visibleCount) {
+  $resultData["visibleCount"] = [int]$value.visibleCount
+}
+
+$resultData = Add-SilmarilRuntimeRecoveryMetadata -Data $resultData -InputObject $evalResult
+$resultData = Add-SilmarilSelectorResolutionMetadata -Data $resultData -Resolution $selectorResolution
+$resultData = Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext
+
+$resultText = if ($exists) { "true" } else { "false" }
+Write-SilmarilCommandResult -Command "exists" -Text $resultText -Data $resultData
+if ($exists) {
+  exit 0
+}
 exit 1

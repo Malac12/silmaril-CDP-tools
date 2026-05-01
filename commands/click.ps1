@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -20,14 +20,12 @@ if ($RemainingArgs.Count -lt 2) {
 }
 
 $selectorInput = [string]$RemainingArgs[0]
-
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
 
 $confirmClick = $false
 $visualCursor = $false
-
 for ($i = 1; $i -lt $RemainingArgs.Count; $i++) {
   $arg = [string]$RemainingArgs[$i]
   $argLower = $arg.ToLowerInvariant()
@@ -56,7 +54,74 @@ $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
 $selectorJs = $selector | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; if (typeof el.scrollIntoView === 'function') { el.scrollIntoView({block:'center', inline:'center'}); } if (typeof el.focus === 'function') { el.focus(); } el.click(); return { ok: true }; })()"
+$domSupport = Get-SilmarilDomSupportScript
+$expression = @"
+(function(){
+  var sel = $selectorJs;
+$domSupport
+  var stats = silmarilCollectSelectorStats(document, sel);
+  if (!stats.ok) {
+    return stats;
+  }
+
+  var firstMatch = stats.matchedCount > 0 ? silmarilDescribeElement(stats.nodes[0]) : null;
+  var visibleMatch = stats.visibleCount > 0 ? stats.visibleNodes[0] : null;
+  if (!visibleMatch) {
+    return {
+      ok: false,
+      reason: stats.matchedCount > 0 ? 'not_visible' : 'not_found',
+      actionability: {
+        matchedCount: stats.matchedCount,
+        visibleCount: stats.visibleCount,
+        firstMatch: firstMatch
+      }
+    };
+  }
+
+  var descriptor = silmarilDescribeElement(visibleMatch);
+  if (descriptor && descriptor.disabled) {
+    return {
+      ok: false,
+      reason: 'disabled',
+      actionability: {
+        matchedCount: stats.matchedCount,
+        visibleCount: stats.visibleCount,
+        chosenElement: descriptor,
+        firstMatch: firstMatch
+      }
+    };
+  }
+  if (descriptor && descriptor.pointerEvents === 'none') {
+    return {
+      ok: false,
+      reason: 'not_actionable',
+      actionability: {
+        matchedCount: stats.matchedCount,
+        visibleCount: stats.visibleCount,
+        chosenElement: descriptor,
+        firstMatch: firstMatch
+      }
+    };
+  }
+
+  if (typeof visibleMatch.scrollIntoView === 'function') {
+    visibleMatch.scrollIntoView({ block:'center', inline:'center' });
+  }
+  if (typeof visibleMatch.focus === 'function') {
+    visibleMatch.focus();
+  }
+  visibleMatch.click();
+  return {
+    ok: true,
+    actionability: {
+      matchedCount: stats.matchedCount,
+      visibleCount: stats.visibleCount,
+      chosenElement: descriptor,
+      firstMatch: firstMatch
+    }
+  };
+})()
+"@
 
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
 if ($visualCursor) {
@@ -67,7 +132,7 @@ if ($visualCursor) {
     Write-SilmarilTrace -Message ("Visual cursor cue failed for click selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)
   }
 }
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "click"
 if ($null -eq $value) {
   throw "click result value is null."
@@ -75,19 +140,33 @@ if ($null -eq $value) {
 
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "click" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
+  }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
     throw "No element matched selector: $selectorInput"
   }
 
-  throw "Click failed for selector: $selectorInput"
+  $actionability = if (($valueProps -contains "actionability") -and $null -ne $value.actionability) { $value.actionability } else { $null }
+  $reason = if (($valueProps -contains "reason") -and $null -ne $value.reason) { [string]$value.reason } else { "not_actionable" }
+  throw (New-SilmarilActionabilityStructuredErrorMessage -CommandName "click" -InputSelector $selectorInput -NormalizedSelector $selector -Reason $reason -Actionability $actionability)
 }
 
-Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data (Add-SilmarilSelectorResolutionMetadata -Data @{
-  selector = $selectorInput
+$data = [ordered]@{
+  selector           = $selectorInput
   normalizedSelector = $selector
-  visualCursor = $visualCursor
-  port     = $port
-  targetId = $targetId
-  urlMatch = $urlMatch
-} -Resolution $selectorResolution) -TargetContext $targetContext)
+  visualCursor       = $visualCursor
+  port               = $port
+  targetId           = $targetId
+  urlMatch           = $urlMatch
+}
+if (($valueProps -contains "actionability") -and $null -ne $value.actionability) {
+  $data["actionability"] = $value.actionability
+}
 
+$data = Add-SilmarilRuntimeRecoveryMetadata -Data $data -InputObject $evalResult
+$data = Add-SilmarilSelectorResolutionMetadata -Data $data -Resolution $selectorResolution
+$data = Add-SilmarilTargetMetadata -Data $data -TargetContext $targetContext
+
+Write-SilmarilCommandResult -Command "click" -Text "Clicked selector: $selectorInput" -Data $data

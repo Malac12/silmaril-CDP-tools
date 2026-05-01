@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -23,10 +23,12 @@ $selectorInput = [string]$RemainingArgs[0]
 if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
-$selector = Normalize-SilmarilSelector -Selector $selectorInput
 
 $fieldsCsv = "text"
 $limit = 20
+$visibleOnly = $false
+$minCount = 0
+$rootSelectorInput = $null
 
 $i = 1
 while ($i -lt $RemainingArgs.Count) {
@@ -60,9 +62,45 @@ while ($i -lt $RemainingArgs.Count) {
       $i += 2
       continue
     }
+    "--visible-only" {
+      $visibleOnly = $true
+      $i += 1
+      continue
+    }
+    "--min-count" {
+      if (($i + 1) -ge $RemainingArgs.Count) {
+        throw "query --min-count requires an integer value."
+      }
+
+      $rawMinCount = [string]$RemainingArgs[$i + 1]
+      $parsedMinCount = 0
+      if (-not [int]::TryParse($rawMinCount, [ref]$parsedMinCount)) {
+        throw "query --min-count must be an integer. Received: $rawMinCount"
+      }
+      if ($parsedMinCount -lt 1) {
+        throw "query --min-count must be >= 1."
+      }
+
+      $minCount = $parsedMinCount
+      $i += 2
+      continue
+    }
+    "--root" {
+      if (($i + 1) -ge $RemainingArgs.Count) {
+        throw "query --root requires a selector or ref."
+      }
+
+      $rootSelectorInput = [string]$RemainingArgs[$i + 1]
+      if ([string]::IsNullOrWhiteSpace($rootSelectorInput)) {
+        throw "query --root requires a non-empty selector or ref."
+      }
+
+      $i += 2
+      continue
+    }
     default {
       if ($arg.StartsWith("--")) {
-        throw "Unsupported flag '$arg'. Supported flags: --fields, --limit, --port, --target-id, --url-match, --timeout-ms"
+        throw "Unsupported flag '$arg'. Supported flags: --fields, --limit, --visible-only, --min-count, --root, --port, --target-id, --url-match, --timeout-ms"
       }
       throw "Unexpected positional argument '$arg'. query accepts one selector plus optional flags."
     }
@@ -96,15 +134,124 @@ foreach ($field in $fields) {
   }
 }
 
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$target = $targetContext.Target
+$selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+$selector = [string]$selectorResolution.resolvedSelector
+
+$rootResolution = $null
+$rootSelector = $null
+if (-not [string]::IsNullOrWhiteSpace($rootSelectorInput)) {
+  $rootResolution = Resolve-SilmarilSelectorInput -InputValue $rootSelectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
+  $rootSelector = [string]$rootResolution.resolvedSelector
+}
+
 $selectorJs = $selector | ConvertTo-Json -Compress
 $fieldsJs = ConvertTo-Json -Compress -InputObject @($fields)
 $limitJs = [string]$limit
-$expression = "(function(){ var sel = $selectorJs; var fields = $fieldsJs; var limit = $limitJs; var isVisible = function(el){ if (!el || !el.isConnected) return false; var style = window.getComputedStyle(el); if (!style) return false; if (style.display === 'none') return false; if (style.visibility === 'hidden' || style.visibility === 'collapse') return false; if (parseFloat(style.opacity || '1') === 0) return false; var rect = el.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; }; var readField = function(el, field){ var f = String(field || ''); var lower = f.toLowerCase(); if (lower === 'text') { var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent; return txt == null ? '' : String(txt); } if (lower === 'href') { if (typeof el.href === 'string') { return el.href; } if (el.getAttribute) { return el.getAttribute('href'); } return null; } if (lower === 'html') { return (typeof el.innerHTML === 'string') ? el.innerHTML : null; } if (lower === 'outer-html') { return (typeof el.outerHTML === 'string') ? el.outerHTML : null; } if (lower === 'tag') { return (el.tagName ? String(el.tagName).toLowerCase() : null); } if (lower === 'value') { return ('value' in el) ? el.value : null; } if (lower === 'visible') { return isVisible(el); } if (lower.indexOf('attr:') === 0) { var attrName = f.slice(5); return el.getAttribute ? el.getAttribute(attrName) : null; } if (lower.indexOf('prop:') === 0) { var propName = f.slice(5); try { var propVal = el[propName]; if (propVal == null) return propVal; var t = typeof propVal; if (t === 'string' || t === 'number' || t === 'boolean') return propVal; return String(propVal); } catch (_) { return null; } } return null; }; var nodes = null; try { nodes = document.querySelectorAll(sel); } catch (e) { return { ok: false, reason: 'invalid_selector', message: String((e && e.message) ? e.message : e), selector: sel }; } var total = nodes.length; var take = Math.min(limit, total); var rows = []; for (var i = 0; i < take; i++) { var el = nodes[i]; var row = {}; for (var j = 0; j < fields.length; j++) { var field = fields[j]; row[field] = readField(el, field); } rows.push(row); } return { ok: true, selector: sel, fields: fields, limit: limit, totalCount: total, returnedCount: rows.length, rows: rows }; })()"
+$visibleOnlyJs = if ($visibleOnly) { "true" } else { "false" }
+$rootSelectorJs = if ([string]::IsNullOrWhiteSpace($rootSelector)) { "null" } else { $rootSelector | ConvertTo-Json -Compress }
+$domSupport = Get-SilmarilDomSupportScript
+$expression = @"
+(function(){
+  var sel = $selectorJs;
+  var fields = $fieldsJs;
+  var limit = $limitJs;
+  var visibleOnly = $visibleOnlyJs;
+  var rootSelector = $rootSelectorJs;
+$domSupport
+  var readField = function(el, field){
+    var f = String(field || '');
+    var lower = f.toLowerCase();
+    if (lower === 'text') {
+      var txt = (typeof el.innerText === 'string') ? el.innerText : el.textContent;
+      return txt == null ? '' : String(txt);
+    }
+    if (lower === 'href') {
+      if (typeof el.href === 'string') {
+        return el.href;
+      }
+      if (el.getAttribute) {
+        return el.getAttribute('href');
+      }
+      return null;
+    }
+    if (lower === 'html') {
+      return (typeof el.innerHTML === 'string') ? el.innerHTML : null;
+    }
+    if (lower === 'outer-html') {
+      return (typeof el.outerHTML === 'string') ? el.outerHTML : null;
+    }
+    if (lower === 'tag') {
+      return (el.tagName ? String(el.tagName).toLowerCase() : null);
+    }
+    if (lower === 'value') {
+      return ('value' in el) ? el.value : null;
+    }
+    if (lower === 'visible') {
+      return silmarilIsVisible(el);
+    }
+    if (lower.indexOf('attr:') === 0) {
+      var attrName = f.slice(5);
+      return el.getAttribute ? el.getAttribute(attrName) : null;
+    }
+    if (lower.indexOf('prop:') === 0) {
+      var propName = f.slice(5);
+      try {
+        var propVal = el[propName];
+        if (propVal == null) return propVal;
+        var t = typeof propVal;
+        if (t === 'string' || t === 'number' || t === 'boolean') return propVal;
+        return String(propVal);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  };
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
-$target = $targetContext.Target
+  var rootState = silmarilResolveRoot(rootSelector);
+  if (!rootState.ok) {
+    return rootState;
+  }
+
+  var stats = silmarilCollectSelectorStats(rootState.root, sel);
+  if (!stats.ok) {
+    return stats;
+  }
+
+  var nodes = visibleOnly ? stats.visibleNodes : stats.nodes;
+  var take = Math.min(limit, nodes.length);
+  var rows = [];
+  for (var i = 0; i < take; i++) {
+    var el = nodes[i];
+    var row = {};
+    for (var j = 0; j < fields.length; j++) {
+      var field = fields[j];
+      row[field] = readField(el, field);
+    }
+    rows.push(row);
+  }
+
+  return {
+    ok: true,
+    selector: sel,
+    rootSelector: rootSelector,
+    fields: fields,
+    limit: limit,
+    visibleOnly: visibleOnly,
+    totalCount: stats.matchedCount,
+    matchedCount: stats.matchedCount,
+    visibleCount: stats.visibleCount,
+    returnedCount: rows.length,
+    returnedVisibleCount: visibleOnly ? rows.length : Math.min(stats.visibleCount, rows.length),
+    rows: rows
+  };
+})()
+"@
+
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 3000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "query"
 if ($null -eq $value) {
   throw "query result value is null."
@@ -113,11 +260,24 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
-    $message = "Invalid selector for query: $selectorInput"
-    if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) {
-      $message = "$message. $($value.message)"
-    }
-    throw $message
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "query" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
+  }
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_root_selector") {
+    $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
+    throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "query root" -InputSelector $rootSelectorInput -NormalizedSelector $rootSelector -DetailMessage $detail -Extra @{
+      inputRootSelector = $rootSelectorInput
+      normalizedRootSelector = $rootSelector
+    })
+  }
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "root_not_found") {
+    throw (New-SilmarilStructuredErrorMessage -Payload ([ordered]@{
+      code = "ROOT_NOT_FOUND"
+      message = "No query root matched selector: $rootSelectorInput"
+      hint = "Verify the root selector or remove --root."
+      inputRootSelector = $rootSelectorInput
+      normalizedRootSelector = $rootSelector
+    }))
   }
 
   throw "query failed for selector: $selectorInput"
@@ -128,9 +288,14 @@ if (($valueProps -contains "rows") -and $null -ne $value.rows) {
   $rows = @($value.rows)
 }
 
-$totalCount = 0
-if (($valueProps -contains "totalCount") -and $null -ne $value.totalCount) {
-  $totalCount = [int]$value.totalCount
+$matchedCount = 0
+if (($valueProps -contains "matchedCount") -and $null -ne $value.matchedCount) {
+  $matchedCount = [int]$value.matchedCount
+}
+
+$visibleCountValue = 0
+if (($valueProps -contains "visibleCount") -and $null -ne $value.visibleCount) {
+  $visibleCountValue = [int]$value.visibleCount
 }
 
 $returnedCount = $rows.Count
@@ -138,18 +303,50 @@ if (($valueProps -contains "returnedCount") -and $null -ne $value.returnedCount)
   $returnedCount = [int]$value.returnedCount
 }
 
-$resultData = Add-SilmarilTargetMetadata -Data ([ordered]@{
-  selector      = $selectorInput
-  normalizedSelector = $selector
-  fields        = $fields
-  limit         = $limit
-  totalCount    = $totalCount
-  returnedCount = $returnedCount
-  rows          = $rows
-  port          = $port
-  targetId      = $targetId
-  urlMatch      = $urlMatch
-}) -TargetContext $targetContext
+$returnedVisibleCount = 0
+if (($valueProps -contains "returnedVisibleCount") -and $null -ne $value.returnedVisibleCount) {
+  $returnedVisibleCount = [int]$value.returnedVisibleCount
+}
+
+$actualCount = if ($visibleOnly) { $visibleCountValue } else { $matchedCount }
+if ($minCount -gt 0 -and $actualCount -lt $minCount) {
+  throw (New-SilmarilCountStructuredErrorMessage -CommandName "query" -InputSelector $selectorInput -NormalizedSelector $selector -MinCount $minCount -ActualCount $actualCount -MatchedCount $matchedCount -VisibleCount $visibleCountValue -VisibleOnly:$visibleOnly -RootSelector ([string]$rootSelectorInput))
+}
+
+$resultData = [ordered]@{
+  selector            = $selectorInput
+  normalizedSelector  = $selector
+  fields              = $fields
+  limit               = $limit
+  totalCount          = $matchedCount
+  matchedCount        = $matchedCount
+  visibleCount        = $visibleCountValue
+  returnedCount       = $returnedCount
+  returnedVisibleCount = $returnedVisibleCount
+  visibleOnly         = $visibleOnly
+  rows                = $rows
+  port                = $port
+  targetId            = $targetId
+  urlMatch            = $urlMatch
+}
+
+if ($minCount -gt 0) {
+  $resultData["minCount"] = $minCount
+}
+
+if ($null -ne $rootResolution) {
+  $resultData["rootSelector"] = $rootSelectorInput
+  $resultData["normalizedRootSelector"] = $rootSelector
+  $resultData["rootInputSelectorOrRef"] = [string]$rootResolution.inputSelectorOrRef
+  $resultData["resolvedRootSelector"] = [string]$rootResolution.resolvedSelector
+  if ($null -ne $rootResolution.resolvedRef) {
+    $resultData["resolvedRootRef"] = $rootResolution.resolvedRef
+  }
+}
+
+$resultData = Add-SilmarilRuntimeRecoveryMetadata -Data $resultData -InputObject $evalResult
+$resultData = Add-SilmarilSelectorResolutionMetadata -Data $resultData -Resolution $selectorResolution
+$resultData = Add-SilmarilTargetMetadata -Data $resultData -TargetContext $targetContext
 
 $rowsText = $rows | ConvertTo-Json -Depth 20 -Compress
 Write-SilmarilCommandResult -Command "query" -Text $rowsText -Data $resultData

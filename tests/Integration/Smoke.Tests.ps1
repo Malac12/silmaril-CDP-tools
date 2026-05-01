@@ -3,6 +3,7 @@ BeforeAll {
   $script:entryScript = Join-Path $script:repoRoot 'silmaril.ps1'
   $script:fixture = Join-Path $script:repoRoot 'tests/fixtures/smoke-page.html'
   $script:snapshotContentFixture = Join-Path $script:repoRoot 'tests/fixtures/snapshot-content-page.html'
+  $script:visibilityFixture = Join-Path $script:repoRoot 'tests/fixtures/visibility-page.html'
   . (Join-Path $script:repoRoot 'lib/common.ps1')
 
   $script:shellPath = (Get-Process -Id $PID).Path
@@ -182,6 +183,64 @@ Describe 'Silmaril Integration Smoke' -Tag 'Integration' {
     $heading = Invoke-SilmarilJson -CliArgs @('get-text', $contentHeadingRef.id, '--port', ([string]$port), '--timeout-ms', '5000')
     $heading.ok | Should -BeTrue
     $heading.text | Should -Be 'Content Focus Title'
+  }
+
+  It 'supports visible-only query and visible-count waits on duplicate content' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $port = Get-FreeLoopbackPort
+
+    (Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$port), '--timeout-ms', '12000', '--poll-ms', '300')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('openurl', $script:visibilityFixture, '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('wait-for', '#title', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+
+    $query = Invoke-SilmarilJson -CliArgs @('query', '.photo-link', '--fields', 'href,text', '--visible-only', '--min-count', '2', '--limit', '10', '--port', ([string]$port), '--timeout-ms', '5000')
+    $query.visibleOnly | Should -BeTrue
+    $query.visibleCount | Should -BeGreaterOrEqual 2
+    $query.returnedCount | Should -Be 2
+
+    $wait = Invoke-SilmarilJson -CliArgs @('wait-for-visible-count', '.photo-link', '--min-count', '2', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')
+    $wait.actualCount | Should -BeGreaterOrEqual 2
+
+    (Invoke-SilmarilJson -CliArgs @('click', '#load-more', '--yes', '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    $growth = Invoke-SilmarilJson -CliArgs @('wait-for-visible-count', '.photo-link', '--min-count', '5', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')
+    $growth.actualCount | Should -BeGreaterOrEqual 5
+  }
+
+  It 'prefers visible duplicate controls for click and type actionability' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $port = Get-FreeLoopbackPort
+
+    (Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$port), '--timeout-ms', '12000', '--poll-ms', '300')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('openurl', $script:visibilityFixture, '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('wait-for', '#visible-action', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+
+    $click = Invoke-SilmarilJson -CliArgs @('click', '.dup-button', '--yes', '--port', ([string]$port), '--timeout-ms', '5000')
+    $click.actionability.visibleCount | Should -Be 1
+    $click.actionability.chosenElement.label | Should -Be 'Visible Action'
+
+    $dom = Invoke-SilmarilJson -CliArgs @('get-dom', '.dup-button', '--port', ([string]$port), '--timeout-ms', '5000')
+    $dom.selectionPolicy | Should -Be 'dom-first'
+    $dom.selectedMatch | Should -Be 'first-dom'
+    $dom.selectedVisible | Should -BeFalse
+    $dom.html | Should -Match 'Hidden Action'
+
+    $status = Invoke-SilmarilJson -CliArgs @('get-text', '#action-status', '--port', ([string]$port), '--timeout-ms', '5000')
+    $status.text | Should -Be 'Visible Clicked'
+
+    $type = Invoke-SilmarilJson -CliArgs @('type', '.dup-input', 'Visible Value', '--yes', '--port', ([string]$port), '--timeout-ms', '5000')
+    $type.ok | Should -BeTrue
+    $type.actionability.editableVisibleCount | Should -Be 1
+
+    $query = Invoke-SilmarilJson -CliArgs @('query', '#visible-input', '--fields', 'value', '--limit', '1', '--port', ([string]$port), '--timeout-ms', '5000')
+    $query.rows[0].value | Should -Be 'Visible Value'
   }
 
   It 'supports openurl-proxy auto-start when MITM is explicitly acknowledged' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
