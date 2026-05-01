@@ -86,9 +86,10 @@ Page Memory is one of the highest-leverage parts of Silmaril. Use it early inste
 - `snapshot --coverage content` keeps the snapshot bounded but prefers richer content roots such as `main` and reaches further below the fold.
 - Treat refs as short-lived. After page-changing navigation or a meaningful content transition, rerun `snapshot` before using refs again.
 - Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
-- Use either `--target-id` or `--url-match` when multiple tabs exist; never use both together.
-- Use `target-show`, `target-pin --yes`, and `target-clear --yes` to manage persistent target selection instead of depending on tab order.
+- When multiple tabs exist, run `list-pages --json`, then use one page selector: `--page-id`, `--url-contains`, `--url-match`, `--title-contains`, or `--title-match`.
+- Prefer `set-page --yes` to make the intended page the default target for the port. `target-show`, `target-pin --yes`, and `target-clear --yes` remain available for lower-level CDP target work.
 - Commands that resolve a page target now activate that tab automatically, so the visible Chrome tab follows the target being controlled.
+- When a selector command fails in JSON mode, inspect `suggestedSelectors`, `candidates`, `recovery`, labels, roles, and visibility before retrying. Do not guess a new selector when recovery data is available.
 - Pass `--yes` for page actions and mutations such as `click`, `type`, `set-text`, `set-html`, and `eval-js`.
 - Treat `eval-js`, `proxy-override`, `proxy-switch`, and `openurl-proxy` as high-risk commands.
 - Use `--allow-unsafe-js` for `eval-js`, or set `SILMARIL_ALLOW_UNSAFE_JS=1` only for a trusted local session.
@@ -108,7 +109,7 @@ Page Memory is one of the highest-leverage parts of Silmaril. Use it early inste
 - Use `wait-for`, `wait-for-any`, `wait-for-gone`, `wait-for-visible-count`, `wait-for-count`, `wait-until-js`, or `wait-for-mutation` to synchronize.
 - Prefer `wait-for-visible-count` or `wait-for-count` over raw JS when waiting for list/feed growth.
 - Use `page-memory lookup --json` early when revisiting a page/app and reusable selectors, pitfalls, or playbooks might already be stored.
-- Use `page-memory verify --id <memoryId> --json` before trusting saved memory on a live page.
+- Use `page-memory verify --id <memoryId> --json` before trusting saved memory on a live page; verification includes selector existence, counts, visible counts, and first-match role/label/text metadata.
 
 Ref-aware selector commands:
 

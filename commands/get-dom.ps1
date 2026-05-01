@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 if ($RemainingArgs.Count -gt 1) {
@@ -31,7 +34,7 @@ if ($RemainingArgs.Count -eq 1) {
   }
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 if (-not [string]::IsNullOrWhiteSpace($selectorInput)) {
   $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
@@ -58,17 +61,23 @@ $domSupport
     selectionPolicy: 'dom-first',
     selectedMatch: selectedMatch,
     selectedVisible: selectedVisible
-  } : null;
+  } : {
+    ok: false,
+    reason: 'not_found',
+    matchedCount: stats.matchedCount,
+    visibleCount: stats.visibleCount,
+    recovery: silmarilCollectRecoveryCandidates(document, sel, 'any', 8)
+  };
 })()
 "@
 }
 
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -AllowTargetRefresh
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "get-dom"
 if ($null -eq $value) {
   if ($selector) {
-    throw "No element matched selector: $selectorInput"
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "get-dom" -InputSelector $selectorInput -NormalizedSelector $selector)
   }
   throw "No DOM content returned."
 }
@@ -78,6 +87,10 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "invalid_selector") {
     $detail = if (($valueProps -contains "message") -and -not [string]::IsNullOrWhiteSpace([string]$value.message)) { [string]$value.message } else { "" }
     throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "get-dom" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
+  }
+  if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
+    $recovery = if (($valueProps -contains "recovery") -and $null -ne $value.recovery) { $value.recovery } else { $null }
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "get-dom" -InputSelector $selectorInput -NormalizedSelector $selector -Recovery $recovery)
   }
   throw "get-dom failed for selector: $selectorInput"
 }

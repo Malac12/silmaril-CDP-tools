@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -60,6 +60,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 if ($RemainingArgs.Count -lt 2) {
@@ -313,7 +316,7 @@ function ConvertTo-SilmarilStrictJsonValue {
   throw "eval-js --result-json requires JSON object/array result."
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 
 $baseTimeoutSec = 0
@@ -422,4 +425,3 @@ if ($remoteProps -contains "description") {
 }
 
 throw "Unable to serialize JavaScript result."
-

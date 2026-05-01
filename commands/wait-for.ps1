@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 $pollMs = [int]$common.PollMs
 
@@ -25,11 +28,11 @@ if ([string]::IsNullOrWhiteSpace($selectorInput)) {
   throw "Selector cannot be empty."
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
-$value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "visible" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for" -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "visible" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for" -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 if ($null -eq $value) {
   throw "wait-for result value is null."
 }
@@ -58,6 +61,9 @@ $resultData = [ordered]@{
   pollMs              = $pollMs
   targetId            = $targetId
   urlMatch            = $urlMatch
+  urlContains         = $urlContains
+  titleMatch          = $titleMatch
+  titleContains       = $titleContains
 }
 if (($valueProps -contains "matchedCount") -and $null -ne $value.matchedCount) {
   $resultData["matchedCount"] = [int]$value.matchedCount

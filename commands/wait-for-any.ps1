@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 $pollMs = [int]$common.PollMs
 
@@ -45,9 +48,9 @@ if ($selectors.Count -lt 1) {
 
 $normalizedSelectors = @($selectors | ForEach-Object { Normalize-SilmarilSelector -Selector ([string]$_) })
 $joinedSelectors = $selectors -join " | "
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
-$value = Invoke-SilmarilSelectorWait -Target $target -Selectors $normalizedSelectors -Mode "any-visible" -TimeoutMs $timeoutMs -PollMs $pollMs -IncludeCounts:$includeCounts -CommandName "wait-for-any" -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$value = Invoke-SilmarilSelectorWait -Target $target -Selectors $normalizedSelectors -Mode "any-visible" -TimeoutMs $timeoutMs -PollMs $pollMs -IncludeCounts:$includeCounts -CommandName "wait-for-any" -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 if ($null -eq $value) {
   throw "wait-for-any result value is null."
 }

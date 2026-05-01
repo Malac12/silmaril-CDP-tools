@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 $pollMs = [int]$common.PollMs
 
@@ -30,10 +33,10 @@ $timeoutJs = [string]$timeoutMs
 $pollJs = [string]$pollMs
 $expression = "(async function(){ var cond = $conditionJs; var timeoutMs = $timeoutJs; var intervalMs = $pollJs; var started = Date.now(); var lastError = ''; while ((Date.now() - started) <= timeoutMs) { try { var fn = new Function('return (' + cond + ');'); var value = fn(); if (value) { return { ok: true, elapsedMs: Date.now() - started, valuePreview: String(value) }; } } catch (e) { lastError = String((e && e.message) ? e.message : e); } await new Promise(function(resolve){ setTimeout(resolve, intervalMs); }); } return { ok: false, reason: 'timeout', elapsedMs: Date.now() - started, lastError: lastError }; })()"
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 5000 -MinSeconds 20
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "wait-until-js"
 if ($null -eq $value) {
   throw "wait-until-js result value is null."
@@ -60,4 +63,7 @@ Write-SilmarilCommandResult -Command "wait-until-js" -Text "JS condition matched
   pollMs     = $pollMs
   targetId   = $targetId
   urlMatch   = $urlMatch
+  urlContains = $urlContains
+  titleMatch = $titleMatch
+  titleContains = $titleContains
 } -TargetContext $targetContext) -UseHost

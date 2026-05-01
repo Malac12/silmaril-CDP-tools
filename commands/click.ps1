@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 if ($RemainingArgs.Count -lt 2) {
@@ -49,7 +52,7 @@ if (-not $confirmClick) {
   throw "click requires explicit confirmation flag --yes"
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
@@ -67,13 +70,15 @@ $domSupport
   var firstMatch = stats.matchedCount > 0 ? silmarilDescribeElement(stats.nodes[0]) : null;
   var visibleMatch = stats.visibleCount > 0 ? stats.visibleNodes[0] : null;
   if (!visibleMatch) {
+    var recovery = silmarilCollectRecoveryCandidates(document, sel, 'action', 8);
     return {
       ok: false,
       reason: stats.matchedCount > 0 ? 'not_visible' : 'not_found',
       actionability: {
         matchedCount: stats.matchedCount,
         visibleCount: stats.visibleCount,
-        firstMatch: firstMatch
+        firstMatch: firstMatch,
+        recovery: recovery
       }
     };
   }
@@ -87,7 +92,8 @@ $domSupport
         matchedCount: stats.matchedCount,
         visibleCount: stats.visibleCount,
         chosenElement: descriptor,
-        firstMatch: firstMatch
+        firstMatch: firstMatch,
+        recovery: silmarilCollectRecoveryCandidates(document, sel, 'action', 8)
       }
     };
   }
@@ -99,7 +105,8 @@ $domSupport
         matchedCount: stats.matchedCount,
         visibleCount: stats.visibleCount,
         chosenElement: descriptor,
-        firstMatch: firstMatch
+        firstMatch: firstMatch,
+        recovery: silmarilCollectRecoveryCandidates(document, sel, 'action', 8)
       }
     };
   }
@@ -132,7 +139,7 @@ if ($visualCursor) {
     Write-SilmarilTrace -Message ("Visual cursor cue failed for click selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)
   }
 }
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "click"
 if ($null -eq $value) {
   throw "click result value is null."
@@ -145,7 +152,12 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
     throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "click" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
   }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selectorInput"
+    $actionability = if (($valueProps -contains "actionability") -and $null -ne $value.actionability) { $value.actionability } else { $null }
+    $recovery = $null
+    if ($null -ne $actionability -and ($actionability.PSObject.Properties.Name -contains "recovery")) {
+      $recovery = $actionability.recovery
+    }
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "click" -InputSelector $selectorInput -NormalizedSelector $selector -Recovery $recovery)
   }
 
   $actionability = if (($valueProps -contains "actionability") -and $null -ne $value.actionability) { $value.actionability } else { $null }
@@ -160,6 +172,9 @@ $data = [ordered]@{
   port               = $port
   targetId           = $targetId
   urlMatch           = $urlMatch
+  urlContains        = $urlContains
+  titleMatch         = $titleMatch
+  titleContains      = $titleContains
 }
 if (($valueProps -contains "actionability") -and $null -ne $value.actionability) {
   $data["actionability"] = $value.actionability

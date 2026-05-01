@@ -42,6 +42,7 @@ Practical rule:
 - Save a reusable record: `page-memory save --file 'C:\path\record.json' --yes --json`
 - Verify a saved record on the current page: `page-memory verify --id 'memory-id' --json`
 - List saved records: `page-memory list --json`
+- Verification checks include selector existence, matched count, visible count, and first-match tag/role/label/text state.
 
 ## Action patterns
 
@@ -55,6 +56,8 @@ Practical rule:
 - Scroll a container by ref: `scroll --container 'e33' --y 400 --json`
 
 Validate the selector first with `exists`, `get-text`, or `query`.
+
+If a selector command fails in JSON mode, inspect `suggestedSelectors`, `candidates`, and `recovery` before retrying. Recovery candidates include labels, roles, visibility, and generated selector options.
 
 Ref-aware commands currently include:
 
@@ -108,17 +111,20 @@ High-risk rule:
 
 ## Targeting rules
 
-- Use `--target-id` when a specific CDP page target is already known.
-- Use `--url-match` when selecting a page by URL pattern is simpler.
-- Never pass both flags in the same call.
+- Start with `list-pages --json` when multiple tabs/windows may exist.
+- Use `--page-id` when a specific page id is already known. `--target-id` is the lower-level alias.
+- Use `--url-contains` or `--title-contains` for agent-friendly matching.
+- Use `--url-match` or `--title-match` when regex matching is necessary.
+- Pass only one page selector flag in a call.
 - When no targeting flag is passed, Silmaril prefers a pinned target for the port, then the last ephemeral target.
 - When a target is resolved, Silmaril activates that tab automatically so the visible browser tab follows the command target.
-- If `--url-match` hits multiple tabs, use `target-pin --yes` or `target-id` to break the tie instead of relying on tab order.
+- If URL/title matching hits multiple tabs, use `set-page --yes` or `--page-id` to break the tie instead of relying on tab order.
 
 Useful inspection commands:
 
-- `target-show --json` to inspect pinned and ephemeral state for a port.
-- `target-pin --current --yes --json` to make the current page the default target.
+- `list-pages --json` to inspect available pages, selected page, and pinned/ephemeral state.
+- `set-page --current --yes --json` to make the current page the default target.
+- `target-show --json` and `target-pin --current --yes --json` for lower-level CDP target state.
 - `target-clear --yes --json` to remove stored target state.
 
 ## Source files

@@ -82,6 +82,38 @@ Describe 'Silmaril Integration Smoke' -Tag 'Integration' {
     $text.text | Should -Be 'Smoke Title'
   }
 
+  It 'supports explicit page target controls' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
+    if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
+      Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'
+      return
+    }
+
+    $port = Get-FreeLoopbackPort
+
+    (Invoke-SilmarilJson -CliArgs @('openbrowser', '--port', ([string]$port), '--timeout-ms', '12000', '--poll-ms', '300')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('openurl', $script:fixture, '--port', ([string]$port), '--timeout-ms', '5000')).ok | Should -BeTrue
+    (Invoke-SilmarilJson -CliArgs @('wait-for', '#title', '--port', ([string]$port), '--timeout-ms', '5000', '--poll-ms', '100')).ok | Should -BeTrue
+
+    $pages = Invoke-SilmarilJson -CliArgs @('list-pages', '--port', ([string]$port))
+    $pages.ok | Should -BeTrue
+    $pages.pageCount | Should -BeGreaterOrEqual 1
+    $pages.selectedPageId | Should -Not -BeNullOrEmpty
+    @($pages.pages | Where-Object { $_.pageId -eq $pages.selectedPageId }).Count | Should -Be 1
+
+    $pin = Invoke-SilmarilJson -CliArgs @('set-page', '--url-contains', 'smoke-page.html', '--yes', '--port', ([string]$port))
+    $pin.ok | Should -BeTrue
+    $pin.pinnedPageId | Should -Not -BeNullOrEmpty
+    $pin.requestedUrlContains | Should -Be 'smoke-page.html'
+
+    $byUrl = Invoke-SilmarilJson -CliArgs @('get-text', '#title', '--url-contains', 'smoke-page.html', '--port', ([string]$port), '--timeout-ms', '5000')
+    $byUrl.ok | Should -BeTrue
+    $byUrl.text | Should -Be 'Smoke Title'
+
+    $byTitle = Invoke-SilmarilJson -CliArgs @('get-text', '#title', '--title-contains', 'Smoke', '--port', ([string]$port), '--timeout-ms', '5000')
+    $byTitle.ok | Should -BeTrue
+    $byTitle.text | Should -Be 'Smoke Title'
+  }
+
   It 'supports click and type with visual cursor mode' -Skip:($env:SILMARIL_RUN_INTEGRATION -ne '1') {
     if ([string]::IsNullOrWhiteSpace((Get-SilmarilBrowserPath))) {
       Set-ItResult -Skipped -Because 'Integration test skipped: no supported browser found.'

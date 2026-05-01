@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 $usage = "set-html requires: ""selector"" ""html"" --yes, or ""selector"" --html-file ""path"" --yes"
@@ -89,12 +92,29 @@ else {
 
 $selectorJs = $selector | ConvertTo-Json -Compress
 $htmlJs = $htmlValue | ConvertTo-Json -Compress
-$expression = "(function(){ var sel = $selectorJs; var html = $htmlJs; var el = document.querySelector(sel); if (!el) return { ok: false, reason: 'not_found' }; el.innerHTML = html; return { ok: true, outerHTML: el.outerHTML }; })()"
+$domSupport = Get-SilmarilDomSupportScript
+$expression = @"
+(function(){
+  var sel = $selectorJs;
+  var html = $htmlJs;
+$domSupport
+  var el = document.querySelector(sel);
+  if (!el) {
+    return {
+      ok: false,
+      reason: 'not_found',
+      recovery: silmarilCollectRecoveryCandidates(document, sel, 'any', 8)
+    };
+  }
+  el.innerHTML = html;
+  return { ok: true, outerHTML: el.outerHTML };
+})()
+"@
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "set-html"
 if ($null -eq $value) {
   throw "set-html result value is null."
@@ -103,7 +123,8 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selectorInput"
+    $recovery = if (($valueProps -contains "recovery") -and $null -ne $value.recovery) { $value.recovery } else { $null }
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "set-html" -InputSelector $selectorInput -NormalizedSelector $selector -Recovery $recovery)
   }
 
   throw "set-html failed for selector: $selectorInput"
@@ -117,6 +138,9 @@ $data = [ordered]@{
   port        = $port
   targetId    = $targetId
   urlMatch    = $urlMatch
+  urlContains = $urlContains
+  titleMatch = $titleMatch
+  titleContains = $titleContains
 }
 
 if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
@@ -124,4 +148,3 @@ if ($inputMode -eq "file" -and -not [string]::IsNullOrWhiteSpace($filePath)) {
 }
 
 Write-SilmarilCommandResult -Command "set-html" -Text "HTML updated for selector: $selectorInput" -Data (Add-SilmarilTargetMetadata -Data $data -TargetContext $targetContext) -UseHost
-

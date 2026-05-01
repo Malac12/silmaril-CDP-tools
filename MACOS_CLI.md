@@ -85,6 +85,7 @@ That smoke flow validates:
 - `wait-for`
 - `get-text`
 - `list-urls`
+- `list-pages`
+- `set-page`
 - `set-text`
 - `eval-js`
-

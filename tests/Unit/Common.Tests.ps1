@@ -20,6 +20,20 @@ Describe 'Parse-SilmarilCommonArgs' {
       Parse-SilmarilCommonArgs -Args @('--target-id', 'a', '--url-match', 'x') -AllowTargetSelection
     } | Should -Throw
   }
+
+  It 'parses agent-friendly page target selectors' {
+    $pageId = Parse-SilmarilCommonArgs -Args @('get-text', '#x', '--page-id', 'page-1') -AllowTargetSelection
+    $pageId.TargetId | Should -Be 'page-1'
+    $pageId.PageId | Should -Be 'page-1'
+
+    $contains = Parse-SilmarilCommonArgs -Args @('get-text', '#x', '--url-contains', 'checkout') -AllowTargetSelection
+    $contains.UrlContains | Should -Be 'checkout'
+    $title = Parse-SilmarilCommonArgs -Args @('get-text', '#x', '--title-contains', 'Cart') -AllowTargetSelection
+    $title.TitleContains | Should -Be 'Cart'
+    {
+      Parse-SilmarilCommonArgs -Args @('--url-contains', 'checkout', '--title-contains', 'Cart') -AllowTargetSelection
+    } | Should -Throw
+  }
 }
 
 Describe 'Normalize-SilmarilSelector' {
@@ -366,6 +380,32 @@ Describe 'Resolve-SilmarilPageTarget' {
     $resolved.SelectionMode | Should -Be 'explicit-url-match'
     $resolved.TargetStateSource | Should -Be 'pinned-target-id'
     $resolved.TargetActivated | Should -BeTrue
+  }
+
+  It 'selects pages by url/title contains selectors' {
+    Mock Invoke-SilmarilActivateTarget {
+      [pscustomobject]@{
+        Attempted = $true
+        Activated = $true
+        Method    = 'http-activate'
+        Error     = $null
+      }
+    }
+
+    Mock Get-SilmarilCdpTargets {
+      @(
+        [pscustomobject]@{ id = 'page-home'; type = 'page'; url = 'https://example.com/home'; title = 'Home'; webSocketDebuggerUrl = 'ws://home' },
+        [pscustomobject]@{ id = 'page-cart'; type = 'page'; url = 'https://example.com/checkout/cart'; title = 'Cart Review'; webSocketDebuggerUrl = 'ws://cart' }
+      )
+    }
+
+    $byUrl = Resolve-SilmarilPageTarget -Port 9994 -UrlContains 'checkout/cart'
+    $byUrl.ResolvedTargetId | Should -Be 'page-cart'
+    $byUrl.SelectionMode | Should -Be 'explicit-url-contains'
+
+    $byTitle = Resolve-SilmarilPageTarget -Port 9994 -TitleContains 'cart review'
+    $byTitle.ResolvedTargetId | Should -Be 'page-cart'
+    $byTitle.SelectionMode | Should -Be 'explicit-title-contains'
   }
 
   It 'does not fail target resolution when visual activation fails' {

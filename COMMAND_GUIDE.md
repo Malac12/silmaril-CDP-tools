@@ -1,4 +1,4 @@
-﻿# Silmaril CDP Command Guide
+# Silmaril CDP Command Guide
 
 This guide covers practical usage patterns for `silmaril.cmd` commands.
 
@@ -422,7 +422,7 @@ Practical rule:
 1. After `openUrl`, check `get-currentUrl --json`.
 2. If a new tab was created, either:
    - keep working on the active target if it is correct, or
-   - pin later commands with `--target-id`.
+   - run `list-pages --json`, then use `set-page --page-id <id> --yes --json` or pass `--page-id` on later commands.
 
 Do not assume subsequent commands still refer to the original page.
 
@@ -553,29 +553,35 @@ Notes:
 Many commands now support the same targeting/timing flags:
 
 - `--port <n>`: CDP port (default `9222`)
+- `--page-id <id>`: agent-friendly alias for an exact CDP page target id
 - `--target-id <id>`: choose an exact CDP page target id
 - `--url-match <regex>`: choose a page target by URL regex
+- `--url-contains <text>`: choose a page whose URL contains text, case-insensitive
+- `--title-match <regex>`: choose a page target by title regex
+- `--title-contains <text>`: choose a page whose title contains text, case-insensitive
 - `--timeout-ms <n>`: command timeout in milliseconds
 - `--poll-ms <n>`: polling interval for wait/open commands
 
 Targeting rule:
 
-- Use either `--target-id` or `--url-match` (not both).
+- Use only one page selector: `--page-id`/`--target-id`, `--url-match`, `--url-contains`, `--title-match`, or `--title-contains`.
 - When neither is provided, Silmaril prefers a pinned target for that CDP port, then the last ephemeral target, then falls back by prior URL if the target id changed after a rerender/navigation.
-- An explicit `--url-match` now throws a structured `TARGET_AMBIGUOUS` error if multiple tabs match and no pinned target breaks the tie.
+- Explicit URL/title matching throws a structured `TARGET_AMBIGUOUS` error if multiple tabs match and no pinned target breaks the tie.
 - When a command resolves a page target, Silmaril now activates that tab in Chrome automatically so the visible tab follows the target that the command is using.
-- Use `target-pin --yes` to make a target the default for a port, `target-show --json` to inspect the current pinned and ephemeral state, and `target-clear --yes` to remove stored target state.
-- `list-urls --json` now includes `targetStateSource`, `pinnedState`, `ephemeralState`, and per-target flags such as `isPinned`, `isEphemeral`, and `isSelected`.
+- Use `set-page --yes` to make a page the default for a port, `list-pages --json` to inspect available pages, and `target-clear --yes` to remove stored target state.
+- `target-pin`, `target-show`, and `list-urls` remain supported for CDP-native workflows.
+- `list-pages --json` and `list-urls --json` include `targetStateSource`, `pinnedState`, `ephemeralState`, and per-target flags such as `isPinned`, `isEphemeral`, and `isSelected`.
 - Command JSON now includes `resolvedTargetId`, `resolvedUrl`, `resolvedTitle`, `targetSelection`, `targetStateSource`, and `targetActivated` so follow-up automation can audit which page target actually ran and whether Chrome visibly switched to it.
 - Ref-aware command JSON also includes `inputSelectorOrRef`, `resolvedSelector`, and `resolvedRef` when the input came from a snapshot ref.
+- Failed selector commands return structured recovery where possible: `suggestedSelectors`, `candidates`, labels, roles, visibility, and candidate selectors.
 
 Examples:
 
 ```powershell
-silmaril.cmd get-text "#title" --port 9223 --url-match "example\.com" --timeout-ms 8000 --json
-silmaril.cmd wait-for "#result" --target-id "ABCD1234" --timeout-ms 15000 --poll-ms 150 --json
-silmaril.cmd target-pin --current --port 9223 --yes --json
-silmaril.cmd target-show --port 9223 --json
+silmaril.cmd list-pages --port 9223 --json
+silmaril.cmd set-page --url-contains "checkout" --port 9223 --yes --json
+silmaril.cmd get-text "#title" --port 9223 --title-contains "Cart" --timeout-ms 8000 --json
+silmaril.cmd wait-for "#result" --page-id "ABCD1234" --timeout-ms 15000 --poll-ms 150 --json
 ```
 
 ## 20. Declarative Runbook Command

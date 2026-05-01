@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -443,4 +443,3 @@ finally {
     Remove-Item Env:SILMARIL_MITM_RULES -ErrorAction SilentlyContinue
   }
 }
-

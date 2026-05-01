@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 $usage = "type requires: ""selector"" ""text"" --yes [--visual-cursor], or ""selector"" --text-file ""path"" --yes [--visual-cursor]"
@@ -107,7 +110,7 @@ else {
   $payloadBytes = [System.Text.Encoding]::UTF8.GetByteCount($textValue)
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
@@ -134,6 +137,7 @@ $domSupport
   var firstMatch = stats.matchedCount > 0 ? silmarilDescribeElement(stats.nodes[0]) : null;
   var chosen = visibleEditableNodes.length > 0 ? visibleEditableNodes[0] : null;
   if (!chosen) {
+    var recovery = silmarilCollectRecoveryCandidates(document, sel, 'editable', 8);
     return {
       ok: false,
       reason: stats.visibleCount > 0 ? 'not_editable' : (stats.matchedCount > 0 ? 'not_visible' : 'not_found'),
@@ -141,7 +145,8 @@ $domSupport
         matchedCount: stats.matchedCount,
         visibleCount: stats.visibleCount,
         editableVisibleCount: visibleEditableNodes.length,
-        firstMatch: firstMatch
+        firstMatch: firstMatch,
+        recovery: recovery
       }
     };
   }
@@ -233,7 +238,8 @@ $domSupport
           visibleCount: stats.visibleCount,
           editableVisibleCount: visibleEditableNodes.length,
           chosenElement: descriptor,
-          firstMatch: firstMatch
+          firstMatch: firstMatch,
+          recovery: silmarilCollectRecoveryCandidates(document, sel, 'editable', 8)
         }
       };
     }
@@ -264,7 +270,8 @@ $domSupport
         visibleCount: stats.visibleCount,
         editableVisibleCount: visibleEditableNodes.length,
         chosenElement: descriptor,
-        firstMatch: firstMatch
+        firstMatch: firstMatch,
+        recovery: silmarilCollectRecoveryCandidates(document, sel, 'editable', 8)
       }
     };
   }
@@ -294,7 +301,7 @@ if ($visualCursor) {
     Write-SilmarilTrace -Message ("Visual cursor cue failed for type selector '{0}': {1}" -f $selectorInput, $_.Exception.Message)
   }
 }
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "type"
 if ($null -eq $value) {
   throw "type result value is null."
@@ -307,7 +314,12 @@ if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
     throw (New-SilmarilSelectorStructuredErrorMessage -CommandName "type" -InputSelector $selectorInput -NormalizedSelector $selector -DetailMessage $detail)
   }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selectorInput"
+    $actionability = if (($valueProps -contains "actionability") -and $null -ne $value.actionability) { $value.actionability } else { $null }
+    $recovery = $null
+    if ($null -ne $actionability -and ($actionability.PSObject.Properties.Name -contains "recovery")) {
+      $recovery = $actionability.recovery
+    }
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "type" -InputSelector $selectorInput -NormalizedSelector $selector -Recovery $recovery)
   }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "value_mismatch") {
     $expectedText = if ($valueProps -contains "expected") { [string]$value.expected } else { $textValue }
@@ -329,6 +341,9 @@ $data = [ordered]@{
   port               = $port
   targetId           = $targetId
   urlMatch           = $urlMatch
+  urlContains        = $urlContains
+  titleMatch         = $titleMatch
+  titleContains      = $titleContains
 }
 
 if (($valueProps -contains "previousValue") -and $null -ne $value.previousValue) {

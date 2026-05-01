@@ -1,4 +1,4 @@
-﻿param(
+param(
   [Parameter(ValueFromRemainingArguments = $true)]
   [string[]]$RemainingArgs
 )
@@ -23,36 +23,39 @@ function Show-Usage {
   Write-Host "  $cliName openUrl \"url\" [--port n] [--timeout-ms n] [--json]"
   Write-Host "  $cliName openurl-proxy \"url\" --allow-mitm [--allow-nonlocal-bind] [--listen-host host] [--listen-port port] [--rules-file \"path\"] [--profile-dir \"path\"] [--port n] [--timeout-ms n] [--poll-ms n] [--json]"
   Write-Host "  $cliName target-show [--port n] [--json]"
+  Write-Host "  $cliName list-pages [--port n] [--json]"
+  Write-Host "  $cliName set-page (--current | --page-id id | --url-contains text | --url-match regex | --title-contains text | --title-match regex) --yes [--port n] [--json]"
   Write-Host "  $cliName target-pin (--current | --target-id id | --url-match regex) --yes [--port n] [--json]"
   Write-Host "  $cliName target-clear --yes [--port n] [--json]"
   Write-Host "  $cliName get-currentUrl [--port n] [--json]"
   Write-Host "  $cliName list-urls [--port n] [--json]"
-  Write-Host "  $cliName snapshot [--coverage viewport|content] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName get-dom [\"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName get-text \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--visible-only] [--min-count n] [--root \"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName exists \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName set-html \"selector\" (\"html\" | --html-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName set-text \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName type \"selector\" (\"text\" | --text-file \"path\") --yes [--visual-cursor] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName click \"selector\" --yes [--visual-cursor] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName scroll [\"selector\"] [--container \"selector\"] [--x n --y n | --left n --top n] [--behavior auto|smooth] [--block start|center|end|nearest] [--inline start|center|end|nearest] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName wait-for \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName wait-for-count \"selector\" [--min-count n] [--root \"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName wait-for-visible-count \"selector\" [--min-count n] [--root \"selector\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName wait-for-any \"selector1\" \"selector2\" [\"selectorN\"...] [--counts] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName wait-for-gone \"selector\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName wait-until-js \"expression\" [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName wait-for-mutation [\"selector\"] [--details] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName eval-js \"expression\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName eval-js --file \"path-to-js\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  Page targeting flags on page commands: [--page-id id | --target-id id | --url-contains text | --url-match regex | --title-contains text | --title-match regex]"
+  Write-Host "  $cliName snapshot [--coverage viewport|content] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName get-dom [\"selector\"] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName get-text \"selector\" [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName query \"selector\" [--fields \"f1,f2,attr:name,prop:name\"] [--limit n] [--visible-only] [--min-count n] [--root \"selector\"] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName exists \"selector\" [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName set-html \"selector\" (\"html\" | --html-file \"path\") --yes [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName set-text \"selector\" (\"text\" | --text-file \"path\") --yes [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName type \"selector\" (\"text\" | --text-file \"path\") --yes [--visual-cursor] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName click \"selector\" --yes [--visual-cursor] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName scroll [\"selector\"] [--container \"selector\"] [--x n --y n | --left n --top n] [--behavior auto|smooth] [--block start|center|end|nearest] [--inline start|center|end|nearest] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName wait-for \"selector\" [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-count \"selector\" [--min-count n] [--root \"selector\"] [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-visible-count \"selector\" [--min-count n] [--root \"selector\"] [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-any \"selector1\" \"selector2\" [\"selectorN\"...] [--counts] [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-gone \"selector\" [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-until-js \"expression\" [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName wait-for-mutation [\"selector\"] [--details] [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName eval-js \"expression\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName eval-js --file \"path-to-js\" --allow-unsafe-js --yes [--isolate-scope] [--result-json] [--port n] [page targeting flags] [--timeout-ms n] [--json]"
   Write-Host "  $cliName proxy-override [--allow-mitm] [--allow-nonlocal-bind] [--match \"url-regex\" --file \"local-file\" --yes] [--content-type \"mime\"] [--status code] [--rules-file \"path\"] [--listen-host host] [--listen-port port] [--mitmdump \"path\"] [--attach] [--dry-run] [--json]"
   Write-Host "  $cliName proxy-switch --match \"url-regex\" --original-file \"path\" --saved-file \"path\" --use (original|saved) --allow-mitm --yes [--status code] [--content-type \"mime\"] [--rules-file \"path\"] [--json]"
-  Write-Host "  $cliName get-source [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
-  Write-Host "  $cliName run \"flow.json\" [--artifacts-dir \"path\"] [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--poll-ms n] [--json]"
-  Write-Host "  $cliName page-memory lookup [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName get-source [--port n] [page targeting flags] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName run \"flow.json\" [--artifacts-dir \"path\"] [--port n] [page targeting flags] [--timeout-ms n] [--poll-ms n] [--json]"
+  Write-Host "  $cliName page-memory lookup [--port n] [page targeting flags] [--timeout-ms n] [--json]"
   Write-Host "  $cliName page-memory save --file \"path\" --yes [--json]"
-  Write-Host "  $cliName page-memory verify --id memory-id [--port n] [--target-id id | --url-match regex] [--timeout-ms n] [--json]"
+  Write-Host "  $cliName page-memory verify --id memory-id [--port n] [page targeting flags] [--timeout-ms n] [--json]"
   Write-Host "  $cliName page-memory list [--domain domain] [--include-invalidated] [--json]"
   Write-Host "  $cliName page-memory invalidate --id memory-id --yes [--json]"
 }
@@ -132,6 +135,8 @@ try {
     "target-show" { Invoke-CommandScript -CommandName "target-show" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "target-pin" { Invoke-CommandScript -CommandName "target-pin" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "target-clear" { Invoke-CommandScript -CommandName "target-clear" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "list-pages" { Invoke-CommandScript -CommandName "list-pages" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
+    "set-page" { Invoke-CommandScript -CommandName "set-page" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "get-currenturl" { Invoke-CommandScript -CommandName "get-currenturl" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "list-urls" { Invoke-CommandScript -CommandName "list-urls" -CommandArgs $commandArgs -JsonOutput $jsonOutput }
     "snapshot" { Invoke-CommandScript -CommandName "snapshot" -CommandArgs $commandArgs -JsonOutput $jsonOutput }

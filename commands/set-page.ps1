@@ -30,7 +30,7 @@ foreach ($arg in $RemainingArgs) {
 }
 
 if (-not $confirm) {
-  throw "target-pin requires explicit confirmation flag --yes"
+  throw "set-page requires explicit confirmation flag --yes"
 }
 
 $common = Parse-SilmarilCommonArgs -Args $filteredArgs -AllowPort -AllowTargetSelection
@@ -43,7 +43,7 @@ $titleMatch = [string]$common.TitleMatch
 $titleContains = [string]$common.TitleContains
 
 if ($RemainingArgs.Count -ne 0) {
-  throw "target-pin does not accept positional arguments."
+  throw "set-page does not accept positional arguments."
 }
 
 $sourceCount = 0
@@ -54,7 +54,7 @@ if (-not [string]::IsNullOrWhiteSpace($urlContains)) { $sourceCount += 1 }
 if (-not [string]::IsNullOrWhiteSpace($titleMatch)) { $sourceCount += 1 }
 if (-not [string]::IsNullOrWhiteSpace($titleContains)) { $sourceCount += 1 }
 if ($sourceCount -ne 1) {
-  throw "target-pin requires exactly one selector source: --current, --target-id/--page-id, --url-match, --url-contains, --title-match, or --title-contains"
+  throw "set-page requires exactly one selector source: --current, --page-id/--target-id, --url-match, --url-contains, --title-match, or --title-contains"
 }
 
 $targetContext = $null
@@ -67,13 +67,20 @@ if ($useCurrent) {
       Port              = $candidateContext.Port
       RequestedTargetId = $candidateContext.RequestedTargetId
       RequestedUrlMatch = $candidateContext.RequestedUrlMatch
-      SelectionMode     = "target-pin-current"
+      RequestedUrlContains = $candidateContext.RequestedUrlContains
+      RequestedTitleMatch = $candidateContext.RequestedTitleMatch
+      RequestedTitleContains = $candidateContext.RequestedTitleContains
+      SelectionMode     = "set-page-current"
       TargetStateSource = "ephemeral-target-id"
       ResolvedTargetId  = $candidateContext.ResolvedTargetId
       ResolvedUrl       = $candidateContext.ResolvedUrl
       ResolvedTitle     = $candidateContext.ResolvedTitle
       PageCount         = $candidateContext.PageCount
       CandidateCount    = 1
+      TargetActivated   = $candidateContext.TargetActivated
+      TargetActivationAttempted = $candidateContext.TargetActivationAttempted
+      TargetActivationMethod = $candidateContext.TargetActivationMethod
+      TargetActivationError = $candidateContext.TargetActivationError
     }
   }
   else {
@@ -83,13 +90,20 @@ if ($useCurrent) {
       Port              = $resolved.Port
       RequestedTargetId = $resolved.RequestedTargetId
       RequestedUrlMatch = $resolved.RequestedUrlMatch
-      SelectionMode     = "target-pin-current"
+      RequestedUrlContains = $resolved.RequestedUrlContains
+      RequestedTitleMatch = $resolved.RequestedTitleMatch
+      RequestedTitleContains = $resolved.RequestedTitleContains
+      SelectionMode     = "set-page-current"
       TargetStateSource = [string]$resolved.TargetStateSource
       ResolvedTargetId  = $resolved.ResolvedTargetId
       ResolvedUrl       = $resolved.ResolvedUrl
       ResolvedTitle     = $resolved.ResolvedTitle
       PageCount         = $resolved.PageCount
       CandidateCount    = 1
+      TargetActivated   = $resolved.TargetActivated
+      TargetActivationAttempted = $resolved.TargetActivationAttempted
+      TargetActivationMethod = $resolved.TargetActivationMethod
+      TargetActivationError = $resolved.TargetActivationError
     }
   }
 }
@@ -97,19 +111,21 @@ else {
   $targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 }
 
-Save-SilmarilTargetState -Port $port -Target $targetContext.Target -SelectionMode "target-pin" -Kind "pinned"
+Save-SilmarilTargetState -Port $port -Target $targetContext.Target -SelectionMode "set-page" -Kind "pinned"
 
 $data = Add-SilmarilTargetMetadata -Data ([ordered]@{
-  port            = $port
-  pinnedTargetId  = [string]$targetContext.ResolvedTargetId
-  pinnedUrl       = [string]$targetContext.ResolvedUrl
-  pinnedTitle     = [string]$targetContext.ResolvedTitle
-  requestedTargetId = $targetId
-  requestedUrlMatch = $urlMatch
-  usedCurrent     = $useCurrent
-  requestedUrlContains = $urlContains
-  requestedTitleMatch = $titleMatch
-  requestedTitleContains = $titleContains
+  port                    = $port
+  pinnedPageId            = [string]$targetContext.ResolvedTargetId
+  pinnedTargetId          = [string]$targetContext.ResolvedTargetId
+  pinnedUrl               = [string]$targetContext.ResolvedUrl
+  pinnedTitle             = [string]$targetContext.ResolvedTitle
+  requestedTargetId       = $targetId
+  requestedPageId         = $targetId
+  requestedUrlMatch       = $urlMatch
+  requestedUrlContains    = $urlContains
+  requestedTitleMatch     = $titleMatch
+  requestedTitleContains  = $titleContains
+  usedCurrent             = $useCurrent
 }) -TargetContext $targetContext
 
-Write-SilmarilCommandResult -Command "target-pin" -Text ("Pinned target: " + [string]$targetContext.ResolvedTargetId) -Data $data -UseHost
+Write-SilmarilCommandResult -Command "set-page" -Text ("Pinned page: " + [string]$targetContext.ResolvedTargetId) -Data $data -UseHost

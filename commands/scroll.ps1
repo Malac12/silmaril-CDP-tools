@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 $selectorInput = $null
@@ -171,7 +174,7 @@ else {
   }
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 if (-not [string]::IsNullOrWhiteSpace($selectorInput)) {
   $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
@@ -192,6 +195,7 @@ $xJs = if ($null -ne $x) { [string]$x } else { "null" }
 $yJs = if ($null -ne $y) { [string]$y } else { "null" }
 $leftJs = if ($null -ne $left) { [string]$left } else { "null" }
 $topJs = if ($null -ne $top) { [string]$top } else { "null" }
+$domSupport = Get-SilmarilDomSupportScript
 
 $expression = @"
 (async function(){
@@ -205,6 +209,7 @@ $expression = @"
   var deltaY = $yJs;
   var absoluteLeft = $leftJs;
   var absoluteTop = $topJs;
+$domSupport
 
   var flush = async function(){
     try {
@@ -228,7 +233,7 @@ $expression = @"
 
   if (mode === 'element') {
     var el = document.querySelector(selector);
-    if (!el) return { ok: false, reason: 'not_found' };
+    if (!el) return { ok: false, reason: 'not_found', recovery: silmarilCollectRecoveryCandidates(document, selector, 'any', 8) };
     if (typeof el.scrollIntoView === 'function') {
       el.scrollIntoView({ behavior: behavior, block: block, inline: inlineMode });
     }
@@ -247,7 +252,7 @@ $expression = @"
   var targetKind = 'page';
   if (containerSelector) {
     target = document.querySelector(containerSelector);
-    if (!target) return { ok: false, reason: 'container_not_found' };
+    if (!target) return { ok: false, reason: 'container_not_found', recovery: silmarilCollectRecoveryCandidates(document, containerSelector, 'any', 8) };
     targetKind = 'container';
   }
 
@@ -309,7 +314,7 @@ $expression = @"
 "@
 
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 2000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "scroll"
 if ($null -eq $value) {
   throw "scroll result value is null."
@@ -318,10 +323,12 @@ if ($null -eq $value) {
 $valueProps = @(Get-SilmarilPropertyNames -InputObject $value)
 if (($valueProps -contains "ok") -and -not [bool]$value.ok) {
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "not_found") {
-    throw "No element matched selector: $selectorInput"
+    $recovery = if (($valueProps -contains "recovery") -and $null -ne $value.recovery) { $value.recovery } else { $null }
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "scroll" -InputSelector $selectorInput -NormalizedSelector $selector -Recovery $recovery)
   }
   if (($valueProps -contains "reason") -and [string]$value.reason -eq "container_not_found") {
-    throw "No scroll container matched selector: $containerInput"
+    $recovery = if (($valueProps -contains "recovery") -and $null -ne $value.recovery) { $value.recovery } else { $null }
+    throw (New-SilmarilSelectorNotFoundStructuredErrorMessage -CommandName "scroll container" -InputSelector $containerInput -NormalizedSelector $containerSelector -Recovery $recovery)
   }
 
   throw "scroll failed."
@@ -333,6 +340,9 @@ $data = [ordered]@{
   port = $port
   targetId = $targetId
   urlMatch = $urlMatch
+  urlContains = $urlContains
+  titleMatch = $titleMatch
+  titleContains = $titleContains
 }
 
 if ($null -ne $selectorInput) {

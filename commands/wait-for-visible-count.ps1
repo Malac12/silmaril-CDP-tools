@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 $pollMs = [int]$common.PollMs
 
@@ -70,7 +73,7 @@ while ($i -lt $RemainingArgs.Count) {
   }
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
@@ -81,7 +84,7 @@ if (-not [string]::IsNullOrWhiteSpace($rootSelectorInput)) {
   $rootSelector = [string]$rootResolution.resolvedSelector
 }
 
-$value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "visible-count" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for-visible-count" -MinCount $minCount -RootSelector $rootSelector -Port $port -TargetId $targetId -UrlMatch $urlMatch -IncludeCounts
+$value = Invoke-SilmarilSelectorWait -Target $target -Selectors @($selector) -Mode "visible-count" -TimeoutMs $timeoutMs -PollMs $pollMs -CommandName "wait-for-visible-count" -MinCount $minCount -RootSelector $rootSelector -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -IncludeCounts
 if ($null -eq $value) {
   throw "wait-for-visible-count result value is null."
 }
@@ -149,6 +152,9 @@ $resultData = [ordered]@{
   pollMs              = $pollMs
   targetId            = $targetId
   urlMatch            = $urlMatch
+  urlContains         = $urlContains
+  titleMatch          = $titleMatch
+  titleContains       = $titleContains
 }
 if ($null -ne $rootResolution) {
   $resultData["rootSelector"] = $rootSelectorInput

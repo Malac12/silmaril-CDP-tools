@@ -111,6 +111,16 @@ Describe 'Dispatcher Error Contract' {
     $payload.message | Should -Match '--yes'
   }
 
+  It 'requires explicit confirmation for set-page' {
+    $result = Invoke-SilmarilRaw -CliArgs @('set-page', '--current', '--json')
+
+    $result.code | Should -Be 1
+    $payload = Get-SilmarilJsonPayload -Result $result
+
+    $payload.code | Should -Be 'INVALID_ARGUMENT'
+    $payload.message | Should -Match '--yes'
+  }
+
   It 'requires explicit confirmation for target-clear' {
     $result = Invoke-SilmarilRaw -CliArgs @('target-clear', '--json')
 
@@ -146,9 +156,103 @@ Describe 'list-urls output contract' {
 
     @($result) | Should -Be @('No URLs found')
   }
+
+  It 'list-pages exposes page ids and selected page metadata' {
+    Mock Get-SilmarilPageTargets {
+      @(
+        [pscustomobject]@{ id = 'page-1'; type = 'page'; url = 'https://example.com'; title = 'Example'; webSocketDebuggerUrl = 'ws://one' }
+      )
+    }
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        ResolvedTargetId = 'page-1'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'preferred-user-page'
+      }
+    }
+    Mock Get-SilmarilAllTargetStates {
+      [pscustomobject]@{
+        pinned = $null
+        ephemeral = $null
+      }
+    }
+
+    $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
+    try {
+      $env:SILMARIL_OUTPUT_JSON = '1'
+      $result = & (Join-Path $script:repoRoot 'commands/list-pages.ps1') -RemainingArgs @()
+      $payload = (@($result) | Select-Object -Last 1 | ConvertFrom-Json)
+
+      $payload.command | Should -Be 'list-pages'
+      $payload.selectedPageId | Should -Be 'page-1'
+      $payload.pages[0].pageId | Should -Be 'page-1'
+    }
+    finally {
+      if ($null -eq $previousJsonMode) {
+        Remove-Item Env:SILMARIL_OUTPUT_JSON -ErrorAction SilentlyContinue
+      }
+      else {
+        $env:SILMARIL_OUTPUT_JSON = $previousJsonMode
+      }
+    }
+  }
 }
 
 Describe 'visual cursor command wiring' {
+  It 'returns selector recovery suggestions when click target is missing' {
+    Mock Resolve-SilmarilPageTarget {
+      [pscustomobject]@{
+        Target = [pscustomobject]@{ id = 'page-missing'; webSocketDebuggerUrl = 'ws://example' }
+        ResolvedTargetId = 'page-missing'
+        ResolvedUrl = 'https://example.com'
+        ResolvedTitle = 'Example'
+        SelectionMode = 'fallback'
+        TargetStateSource = 'none'
+        PageCount = 1
+        CandidateCount = 0
+      }
+    }
+    Mock Invoke-SilmarilRuntimeEvaluate {
+      [pscustomobject]@{
+        result = [pscustomobject]@{
+          value = [pscustomobject]@{
+            ok = $false
+            reason = 'not_found'
+            actionability = [pscustomobject]@{
+              matchedCount = 0
+              visibleCount = 0
+              recovery = [pscustomobject]@{
+                suggestedSelectors = @('[data-testid="save"]')
+                candidates = @(
+                  [pscustomobject]@{
+                    tag = 'button'
+                    role = 'button'
+                    label = 'Save'
+                    selector = '[data-testid="save"]'
+                    visible = $true
+                  }
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+
+    try {
+      & (Join-Path $script:repoRoot 'commands/click.ps1') -RemainingArgs @('#missing', '--yes')
+      throw 'Expected click failure.'
+    }
+    catch {
+      $payload = Get-SilmarilErrorContract -Command 'click' -Message $_.Exception.Message
+      $payload.code | Should -Be 'NOT_FOUND'
+      $payload.suggestedSelectors[0] | Should -Be '[data-testid="save"]'
+      $payload.candidates[0].label | Should -Be 'Save'
+    }
+  }
+
   It 'passes visualCursor metadata through click when enabled' {
     $previousJsonMode = $env:SILMARIL_OUTPUT_JSON
 
@@ -529,7 +633,7 @@ Describe 'scroll command wiring' {
     }
   }
 
-  It 'throws a clear error when the scroll container selector does not match' {
+  It 'returns structured recovery when the scroll container selector does not match' {
     Mock Resolve-SilmarilPageTarget {
       [pscustomobject]@{
         Target = [pscustomobject]@{ id = 'page-scroll-3'; webSocketDebuggerUrl = 'ws://example' }
@@ -548,17 +652,34 @@ Describe 'scroll command wiring' {
           value = [pscustomobject]@{
             ok = $false
             reason = 'container_not_found'
+            recovery = [pscustomobject]@{
+              suggestedSelectors = @('#content')
+              candidates = @(
+                [pscustomobject]@{
+                  tag = 'main'
+                  selector = '#content'
+                  label = 'Content'
+                  visible = $true
+                }
+              )
+            }
           }
         }
       }
     }
 
-    {
+    try {
       & (Join-Path $script:repoRoot 'commands/scroll.ps1') -RemainingArgs @(
         '--container', '.missing-pane',
         '--y', '400'
       )
-    } | Should -Throw '*No scroll container matched selector: .missing-pane*'
+      throw 'Expected scroll failure.'
+    }
+    catch {
+      $payload = Get-SilmarilErrorContract -Command 'scroll' -Message $_.Exception.Message
+      $payload.code | Should -Be 'NOT_FOUND'
+      $payload.suggestedSelectors[0] | Should -Be '#content'
+    }
   }
 }
 

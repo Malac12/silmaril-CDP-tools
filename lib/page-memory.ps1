@@ -574,7 +574,16 @@ function Get-SilmarilPageMemorySelectorStates {
 
   $states = [ordered]@{}
   foreach ($selector in $normalizedSelectors) {
-    $states[$selector] = $false
+    $states[$selector] = [pscustomobject]@{
+      exists       = $false
+      matchedCount = 0
+      visibleCount = 0
+      firstText    = ""
+      firstRole    = ""
+      firstLabel   = ""
+      firstTag     = ""
+      error        = ""
+    }
   }
 
   if ($normalizedSelectors.Count -eq 0) {
@@ -582,15 +591,38 @@ function Get-SilmarilPageMemorySelectorStates {
   }
 
   $selectorsJson = ConvertTo-Json -InputObject @($normalizedSelectors) -Compress -Depth 5
+  $domSupportScript = Get-SilmarilDomSupportScript
   $expression = @"
 (function(){
   const selectors = $selectorsJson;
   const result = {};
+$($domSupportScript)
   for (const selector of selectors) {
     try {
-      result[selector] = !!document.querySelector(selector);
-    } catch (_) {
-      result[selector] = false;
+      const nodes = Array.from(document.querySelectorAll(selector));
+      const visibleNodes = nodes.filter(function(node){ return silmarilIsVisible(node); });
+      const first = nodes.length > 0 ? silmarilDescribeElement(nodes[0]) : null;
+      result[selector] = {
+        exists: nodes.length > 0,
+        matchedCount: nodes.length,
+        visibleCount: visibleNodes.length,
+        firstText: first ? String(first.text || '').slice(0, 200) : '',
+        firstRole: first ? String(first.role || '') : '',
+        firstLabel: first ? String(first.label || '') : '',
+        firstTag: first ? String(first.tag || '') : '',
+        error: ''
+      };
+    } catch (error) {
+      result[selector] = {
+        exists: false,
+        matchedCount: 0,
+        visibleCount: 0,
+        firstText: '',
+        firstRole: '',
+        firstLabel: '',
+        firstTag: '',
+        error: String((error && error.message) ? error.message : error)
+      };
     }
   }
   return result;
@@ -601,10 +633,79 @@ function Get-SilmarilPageMemorySelectorStates {
   $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $timeoutSec
   $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "page-memory selector probe"
   foreach ($name in @(Get-SilmarilPropertyNames -InputObject $value)) {
-    $states[[string]$name] = [bool]$value.$name
+    $selectorState = $value.$name
+    if ($selectorState -is [bool]) {
+      $states[[string]$name] = [pscustomobject]@{
+        exists       = [bool]$selectorState
+        matchedCount = if ([bool]$selectorState) { 1 } else { 0 }
+        visibleCount = 0
+        firstText    = ""
+        firstRole    = ""
+        firstLabel   = ""
+        firstTag     = ""
+        error        = ""
+      }
+    }
+    else {
+      $states[[string]$name] = $selectorState
+    }
   }
 
   return $states
+}
+
+function Get-SilmarilPageMemorySelectorExists {
+  param(
+    [hashtable]$SelectorStates,
+    [string]$Selector
+  )
+
+  if ($null -eq $SelectorStates -or [string]::IsNullOrWhiteSpace($Selector)) {
+    return $false
+  }
+
+  $state = $SelectorStates[$Selector]
+  if ($null -eq $state) {
+    return $false
+  }
+
+  if ($state -is [bool]) {
+    return [bool]$state
+  }
+
+  $stateProps = @(Get-SilmarilPropertyNames -InputObject $state)
+  if ($stateProps -contains "exists") {
+    return [bool]$state.exists
+  }
+
+  return $false
+}
+
+function Get-SilmarilPageMemorySelectorState {
+  param(
+    [hashtable]$SelectorStates,
+    [string]$Selector
+  )
+
+  if ($null -eq $SelectorStates -or [string]::IsNullOrWhiteSpace($Selector)) {
+    return $null
+  }
+
+  $state = $SelectorStates[$Selector]
+  if ($state -is [bool]) {
+    return [pscustomobject]@{
+      exists       = [bool]$state
+      matchedCount = if ([bool]$state) { 1 } else { 0 }
+      visibleCount = 0
+      firstText    = ""
+      firstRole    = ""
+      firstLabel   = ""
+      firstTag     = ""
+      error        = ""
+    }
+  }
+
+  return $state
 }
 
 function Get-SilmarilPageMemoryMatch {
@@ -659,14 +760,14 @@ function Get-SilmarilPageMemoryMatch {
 
   $requiredMarkers = @(Get-SilmarilStringArray -Value $profile.requiredMarkers)
   foreach ($marker in $requiredMarkers) {
-    if (-not [bool]$SelectorStates[$marker]) {
+    if (-not (Get-SilmarilPageMemorySelectorExists -SelectorStates $SelectorStates -Selector $marker)) {
       return $null
     }
   }
 
   $excludedMarkers = @(Get-SilmarilStringArray -Value $profile.excludedMarkers)
   foreach ($marker in $excludedMarkers) {
-    if ([bool]$SelectorStates[$marker]) {
+    if (Get-SilmarilPageMemorySelectorExists -SelectorStates $SelectorStates -Selector $marker) {
       return $null
     }
   }
@@ -775,24 +876,28 @@ function Verify-SilmarilPageMemoryRecord {
 
   if ([string]$Record.recordType -eq "stable") {
     foreach ($marker in @(Get-SilmarilStringArray -Value $Record.profile.requiredMarkers)) {
-      $actual = [bool]$selectorStates[$marker]
+      $state = Get-SilmarilPageMemorySelectorState -SelectorStates $selectorStates -Selector $marker
+      $actual = Get-SilmarilPageMemorySelectorExists -SelectorStates $selectorStates -Selector $marker
       $checks += [ordered]@{
         kind     = "requiredMarker"
         target   = $marker
         expected = $true
         actual   = $actual
         passed   = ($actual -eq $true)
+        state    = $state
       }
     }
 
     foreach ($marker in @(Get-SilmarilStringArray -Value $Record.profile.excludedMarkers)) {
-      $actual = [bool]$selectorStates[$marker]
+      $state = Get-SilmarilPageMemorySelectorState -SelectorStates $selectorStates -Selector $marker
+      $actual = Get-SilmarilPageMemorySelectorExists -SelectorStates $selectorStates -Selector $marker
       $checks += [ordered]@{
         kind     = "excludedMarker"
         target   = $marker
         expected = $false
         actual   = $actual
         passed   = ($actual -eq $false)
+        state    = $state
       }
     }
 
@@ -830,25 +935,29 @@ function Verify-SilmarilPageMemoryRecord {
   }
 
   foreach ($selector in @(Get-SilmarilStringArray -Value $Record.verification.selectors)) {
-    $actual = [bool]$selectorStates[$selector]
+    $state = Get-SilmarilPageMemorySelectorState -SelectorStates $selectorStates -Selector $selector
+    $actual = Get-SilmarilPageMemorySelectorExists -SelectorStates $selectorStates -Selector $selector
     $checks += [ordered]@{
       kind     = "verificationSelector"
       target   = $selector
       expected = $true
       actual   = $actual
       passed   = ($actual -eq $true)
+      state    = $state
     }
   }
 
   foreach ($selectorRecord in @($Record.selectors)) {
     $selector = [string]$selectorRecord.selector
-    $actual = [bool]$selectorStates[$selector]
+    $state = Get-SilmarilPageMemorySelectorState -SelectorStates $selectorStates -Selector $selector
+    $actual = Get-SilmarilPageMemorySelectorExists -SelectorStates $selectorStates -Selector $selector
     $checks += [ordered]@{
       kind     = "selector"
       target   = $selector
       expected = $true
       actual   = $actual
       passed   = ($actual -eq $true)
+      state    = $state
     }
   }
 
@@ -899,7 +1008,7 @@ function Invoke-SilmarilPageMemoryLookup {
     throw "page-memory lookup takes no positional arguments. Supported flags: --port, --target-id, --url-match, --timeout-ms"
   }
 
-  $targetContext = Resolve-SilmarilPageTarget -Port ([int]$common.Port) -TargetId ([string]$common.TargetId) -UrlMatch ([string]$common.UrlMatch)
+  $targetContext = Resolve-SilmarilPageTarget -Port ([int]$common.Port) -TargetId ([string]$common.TargetId) -UrlMatch ([string]$common.UrlMatch) -UrlContains ([string]$common.UrlContains) -TitleMatch ([string]$common.TitleMatch) -TitleContains ([string]$common.TitleContains)
   $fingerprint = Get-SilmarilPageFingerprint -TargetContext $targetContext
   $records = Get-SilmarilPageMemoryRecords -RecordType all
   $matches = Find-SilmarilPageMemoryMatches -Target $targetContext.Target -Fingerprint $fingerprint -Records $records -TimeoutMs ([int]$common.TimeoutMs)
@@ -1055,7 +1164,7 @@ function Invoke-SilmarilPageMemoryVerify {
     throw "page-memory verify supports only --id, --port, --target-id, --url-match, and --timeout-ms"
   }
 
-  $targetContext = Resolve-SilmarilPageTarget -Port ([int]$common.Port) -TargetId ([string]$common.TargetId) -UrlMatch ([string]$common.UrlMatch)
+  $targetContext = Resolve-SilmarilPageTarget -Port ([int]$common.Port) -TargetId ([string]$common.TargetId) -UrlMatch ([string]$common.UrlMatch) -UrlContains ([string]$common.UrlContains) -TitleMatch ([string]$common.TitleMatch) -TitleContains ([string]$common.TitleContains)
   $fingerprint = Get-SilmarilPageFingerprint -TargetContext $targetContext
   $result = Verify-SilmarilPageMemoryRecord -Record $record -Target $targetContext.Target -Fingerprint $fingerprint -TimeoutMs ([int]$common.TimeoutMs)
   $data = Add-SilmarilTargetMetadata -Data ([ordered]@{

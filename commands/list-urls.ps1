@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -38,10 +38,12 @@ if (Test-SilmarilJsonOutput) {
   }
   Write-SilmarilJson -Value ([ordered]@{
     ok               = $true
-    command          = "list-urls"
+    command          = if ($MyInvocation.MyCommand.Name -ieq "list-pages.ps1") { "list-pages" } else { "list-urls" }
     port             = $port
     urls             = $urls
+    pages            = $targets
     selectedTargetId = $selectedTargetId
+    selectedPageId   = $selectedTargetId
     selectedUrl      = [string]$targetContext.ResolvedUrl
     selectedTitle    = [string]$targetContext.ResolvedTitle
     targetSelection  = [string]$targetContext.SelectionMode

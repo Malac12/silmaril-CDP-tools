@@ -86,7 +86,7 @@ Describe 'page-memory command family' {
         Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example'; url = 'https://lichess.org/I6o4Q2cS'; title = 'Round' }
         ResolvedTargetId = 'page-1'
         ResolvedUrl = 'https://lichess.org/I6o4Q2cS'
-        ResolvedTitle = '轮到您走棋 - 对弈 Stockfish level 1 • lichess.org'
+        ResolvedTitle = '杞埌鎮ㄨ蛋妫?- 瀵瑰紙 Stockfish level 1 鈥?lichess.org'
         SelectionMode = 'fallback'
         TargetStateSource = 'preferred-user-page'
         PageCount = 1
@@ -121,7 +121,7 @@ Describe 'page-memory command family' {
         Target = [pscustomobject]@{ id = 'page-1'; webSocketDebuggerUrl = 'ws://example'; url = 'https://lichess.org/I6o4Q2cS'; title = 'Round' }
         ResolvedTargetId = 'page-1'
         ResolvedUrl = 'https://lichess.org/I6o4Q2cS'
-        ResolvedTitle = '轮到您走棋 - 对弈 Stockfish level 1 • lichess.org'
+        ResolvedTitle = '杞埌鎮ㄨ蛋妫?- 瀵瑰紙 Stockfish level 1 鈥?lichess.org'
         SelectionMode = 'fallback'
         TargetStateSource = 'preferred-user-page'
         PageCount = 1
@@ -146,6 +146,7 @@ Describe 'page-memory command family' {
 
     $payload.command | Should -Be 'page-memory.verify'
     $payload.overallVerified | Should -BeTrue
+    ($payload.checks | Where-Object { $_.kind -eq 'selector' } | Select-Object -First 1).state.exists | Should -BeTrue
     $payload.lastVerificationStatus | Should -Be 'verified'
 
     $saved = Get-SilmarilPageMemoryRecordById -Id 'lichess-round-v1'

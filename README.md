@@ -57,13 +57,16 @@ It also includes:
 - visibility-aware query and count waits for feeds and result lists
 - visible-first selector reads for `get-text`
 - safer click and type behavior on pages with hidden duplicate controls
+- page-friendly target controls with `list-pages`, `set-page`, `--page-id`, `--url-contains`, and `--title-contains`
+- selector failure recovery with `suggestedSelectors` and nearby interactive candidates
 - selector normalization for common shell-damaged attribute selectors
 
 ## Agent-Focused Design
 
 Silmaril is designed around problems that show up when a coding agent controls a browser:
 
-- **Target drift:** `target-pin`, `target-show`, `target-clear`, `--target-id`, and `--url-match` help the agent keep acting on the intended tab instead of whichever tab happens to be active.
+- **Target drift:** `list-pages`, `set-page`, `--page-id`, `--url-contains`, `--title-contains`, `--target-id`, and `--url-match` help the agent keep acting on the intended tab instead of whichever tab happens to be active.
+- **Selector misses:** failed reads/actions return structured recovery data, including `suggestedSelectors` and candidate labels/roles, so the agent can retry from evidence instead of guessing.
 - **Hidden duplicate DOM:** visible-first `get-text`, DOM-first `get-dom`, `query --visible-only`, and visible count waits reduce mistakes on responsive pages with hidden mobile or desktop copies while keeping diagnostic markup inspectable.
 - **State uncertainty:** commands return structured JSON with URL, title, match counts, visible counts, selected target, and actionability details where possible.
 - **Repeated page work:** `page-memory` stores verified selectors, pitfalls, and playbooks so agents do not have to rediscover the same page every time.
@@ -149,7 +152,7 @@ Silmaril is not finished. The parts that matter most next are:
 - clearer command semantics, especially around form controls versus text/HTML mutation
 - stronger page-memory verification across redesigns, A/B tests, responsive layouts, and auth changes
 - semantic control discovery, such as finding a button by role/name or a field by label before falling back to raw selectors
-- better recovery hints when a pinned target closes, redirects, or becomes ambiguous
+- richer recovery when a pinned target closes, redirects, or becomes ambiguous
 - dry-run actionability checks for every page-changing command
 - richer debugging artifacts: screenshots, console summaries, network summaries, and lightweight traces
 - broader interaction coverage, including hover, file upload, dialogs, keyboard chords, and drag/drop

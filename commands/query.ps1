@@ -13,6 +13,9 @@ $RemainingArgs = @($common.RemainingArgs)
 $port = [int]$common.Port
 $targetId = [string]$common.TargetId
 $urlMatch = [string]$common.UrlMatch
+$urlContains = [string]$common.UrlContains
+$titleMatch = [string]$common.TitleMatch
+$titleContains = [string]$common.TitleContains
 $timeoutMs = [int]$common.TimeoutMs
 
 if ($RemainingArgs.Count -lt 1) {
@@ -134,7 +137,7 @@ foreach ($field in $fields) {
   }
 }
 
-$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch
+$targetContext = Resolve-SilmarilPageTarget -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains
 $target = $targetContext.Target
 $selectorResolution = Resolve-SilmarilSelectorInput -InputValue $selectorInput -Port $port -TargetContext $targetContext -TimeoutMs $timeoutMs
 $selector = [string]$selectorResolution.resolvedSelector
@@ -245,13 +248,14 @@ $domSupport
     visibleCount: stats.visibleCount,
     returnedCount: rows.length,
     returnedVisibleCount: visibleOnly ? rows.length : Math.min(stats.visibleCount, rows.length),
-    rows: rows
+    rows: rows,
+    recovery: nodes.length > 0 ? null : silmarilCollectRecoveryCandidates(rootState.root, sel, 'any', 8)
   };
 })()
 "@
 
 $timeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $timeoutMs -PaddingMs 3000 -MinSeconds 10
-$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -AllowTargetRefresh
+$evalResult = Invoke-SilmarilRuntimeEvaluate -Target $target -Expression $expression -TimeoutSec $timeoutSec -Port $port -TargetId $targetId -UrlMatch $urlMatch -UrlContains $urlContains -TitleMatch $titleMatch -TitleContains $titleContains -AllowTargetRefresh
 $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName "query"
 if ($null -eq $value) {
   throw "query result value is null."
@@ -310,7 +314,16 @@ if (($valueProps -contains "returnedVisibleCount") -and $null -ne $value.returne
 
 $actualCount = if ($visibleOnly) { $visibleCountValue } else { $matchedCount }
 if ($minCount -gt 0 -and $actualCount -lt $minCount) {
-  throw (New-SilmarilCountStructuredErrorMessage -CommandName "query" -InputSelector $selectorInput -NormalizedSelector $selector -MinCount $minCount -ActualCount $actualCount -MatchedCount $matchedCount -VisibleCount $visibleCountValue -VisibleOnly:$visibleOnly -RootSelector ([string]$rootSelectorInput))
+  $countError = New-SilmarilCountStructuredErrorMessage -CommandName "query" -InputSelector $selectorInput -NormalizedSelector $selector -MinCount $minCount -ActualCount $actualCount -MatchedCount $matchedCount -VisibleCount $visibleCountValue -VisibleOnly:$visibleOnly -RootSelector ([string]$rootSelectorInput)
+  if (($valueProps -contains "recovery") -and $null -ne $value.recovery) {
+    $payload = Get-SilmarilErrorContract -Command "query" -Message $countError
+    $payload["recovery"] = $value.recovery
+    if (($value.recovery.PSObject.Properties.Name -contains "suggestedSelectors") -and $null -ne $value.recovery.suggestedSelectors) {
+      $payload["suggestedSelectors"] = @($value.recovery.suggestedSelectors)
+    }
+    throw (New-SilmarilStructuredErrorMessage -Payload $payload)
+  }
+  throw $countError
 }
 
 $resultData = [ordered]@{
@@ -328,6 +341,15 @@ $resultData = [ordered]@{
   port                = $port
   targetId            = $targetId
   urlMatch            = $urlMatch
+  urlContains         = $urlContains
+  titleMatch          = $titleMatch
+  titleContains       = $titleContains
+}
+if (($valueProps -contains "recovery") -and $null -ne $value.recovery) {
+  $resultData["recovery"] = $value.recovery
+  if (($value.recovery.PSObject.Properties.Name -contains "suggestedSelectors") -and $null -ne $value.recovery.suggestedSelectors) {
+    $resultData["suggestedSelectors"] = @($value.recovery.suggestedSelectors)
+  }
 }
 
 if ($minCount -gt 0) {

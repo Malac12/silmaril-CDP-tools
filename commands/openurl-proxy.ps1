@@ -1,4 +1,4 @@
-﻿param(
+param(
   [string[]]$RemainingArgs
 )
 
@@ -225,6 +225,3 @@ Write-SilmarilCommandResult -Command "openurl-proxy" -Text "Opened URL through p
   timeoutMs    = $timeoutMs
   pollMs       = $pollMs
 } -UseHost
-
-
-

@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 function Get-SilmarilPropertyNames {
@@ -421,6 +421,9 @@ function Parse-SilmarilCommonArgs {
   $pollMs = $DefaultPollMs
   $targetId = $null
   $urlMatch = $null
+  $urlContains = $null
+  $titleMatch = $null
+  $titleContains = $null
   $remaining = @()
 
   $i = 0
@@ -472,6 +475,25 @@ function Parse-SilmarilCommonArgs {
         $i += 2
         continue
       }
+      "--page-id" {
+        if (-not $AllowTargetSelection) {
+          $remaining += $arg
+          $i += 1
+          continue
+        }
+
+        if (($i + 1) -ge $InputArgs.Count) {
+          throw "--page-id requires a value."
+        }
+
+        $targetId = [string]$InputArgs[$i + 1]
+        if ([string]::IsNullOrWhiteSpace($targetId)) {
+          throw "--page-id cannot be empty."
+        }
+
+        $i += 2
+        continue
+      }
       "--url-match" {
         if (-not $AllowTargetSelection) {
           $remaining += $arg
@@ -486,6 +508,63 @@ function Parse-SilmarilCommonArgs {
         $urlMatch = [string]$InputArgs[$i + 1]
         if ([string]::IsNullOrWhiteSpace($urlMatch)) {
           throw "--url-match cannot be empty."
+        }
+
+        $i += 2
+        continue
+      }
+      "--url-contains" {
+        if (-not $AllowTargetSelection) {
+          $remaining += $arg
+          $i += 1
+          continue
+        }
+
+        if (($i + 1) -ge $InputArgs.Count) {
+          throw "--url-contains requires a value."
+        }
+
+        $urlContains = [string]$InputArgs[$i + 1]
+        if ([string]::IsNullOrWhiteSpace($urlContains)) {
+          throw "--url-contains cannot be empty."
+        }
+
+        $i += 2
+        continue
+      }
+      "--title-match" {
+        if (-not $AllowTargetSelection) {
+          $remaining += $arg
+          $i += 1
+          continue
+        }
+
+        if (($i + 1) -ge $InputArgs.Count) {
+          throw "--title-match requires a regex pattern."
+        }
+
+        $titleMatch = [string]$InputArgs[$i + 1]
+        if ([string]::IsNullOrWhiteSpace($titleMatch)) {
+          throw "--title-match cannot be empty."
+        }
+
+        $i += 2
+        continue
+      }
+      "--title-contains" {
+        if (-not $AllowTargetSelection) {
+          $remaining += $arg
+          $i += 1
+          continue
+        }
+
+        if (($i + 1) -ge $InputArgs.Count) {
+          throw "--title-contains requires a value."
+        }
+
+        $titleContains = [string]$InputArgs[$i + 1]
+        if ([string]::IsNullOrWhiteSpace($titleContains)) {
+          throw "--title-contains cannot be empty."
         }
 
         $i += 2
@@ -546,8 +625,15 @@ function Parse-SilmarilCommonArgs {
     }
   }
 
-  if (-not [string]::IsNullOrWhiteSpace($targetId) -and -not [string]::IsNullOrWhiteSpace($urlMatch)) {
-    throw "Use either --target-id or --url-match, not both."
+  $targetSelectorCount = 0
+  foreach ($candidate in @($targetId, $urlMatch, $urlContains, $titleMatch, $titleContains)) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+      $targetSelectorCount += 1
+    }
+  }
+
+  if ($targetSelectorCount -gt 1) {
+    throw "Use only one page target selector: --target-id/--page-id, --url-match, --url-contains, --title-match, or --title-contains."
   }
 
   return [ordered]@{
@@ -556,7 +642,11 @@ function Parse-SilmarilCommonArgs {
     TimeoutMs     = $timeoutMs
     PollMs        = $pollMs
     TargetId      = $targetId
+    PageId        = $targetId
     UrlMatch      = $urlMatch
+    UrlContains   = $urlContains
+    TitleMatch    = $titleMatch
+    TitleContains = $titleContains
   }
 }
 
@@ -1586,6 +1676,12 @@ var silmarilDescribeElement = function(el){
   try {
     disabled = !!el.disabled || silmarilClean(el.getAttribute && el.getAttribute('aria-disabled')).toLowerCase() === 'true';
   } catch (_) {}
+  var selectors = [];
+  try {
+    selectors = silmarilCandidateSelectors(el);
+  } catch (_) {
+    selectors = [];
+  }
   return {
     tag: el.tagName ? String(el.tagName).toLowerCase() : '',
     role: silmarilGetRole(el),
@@ -1594,12 +1690,145 @@ var silmarilDescribeElement = function(el){
     disabled: disabled,
     pointerEvents: style ? String(style.pointerEvents || '') : '',
     text: silmarilClean(typeof el.innerText === 'string' ? el.innerText : el.textContent),
+    selector: selectors.length > 0 ? selectors[0] : '',
+    selectors: selectors,
     rect: rect ? {
       x: Math.round(rect.x),
       y: Math.round(rect.y),
       width: Math.round(rect.width),
       height: Math.round(rect.height)
     } : null
+  };
+};
+var silmarilCssEscape = function(value){
+  var text = String(value == null ? '' : value);
+  if (window.CSS && typeof window.CSS.escape === 'function') {
+    return window.CSS.escape(text);
+  }
+  return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[^a-zA-Z0-9_-]/g, function(ch){
+    var hex = ch.charCodeAt(0).toString(16);
+    return '\\' + hex + ' ';
+  });
+};
+var silmarilCssString = function(value){
+  return '"' + String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+};
+var silmarilPushUnique = function(list, value){
+  if (!value || list.indexOf(value) >= 0) return;
+  list.push(value);
+};
+var silmarilCandidateSelectors = function(el){
+  var selectors = [];
+  if (!el || !el.tagName) return selectors;
+  var tag = String(el.tagName).toLowerCase();
+  var id = silmarilClean(el.getAttribute && el.getAttribute('id'));
+  if (id) silmarilPushUnique(selectors, '#' + silmarilCssEscape(id));
+  ['data-testid','data-test','data-qa','name','aria-label','placeholder','title'].forEach(function(attr){
+    var value = silmarilClean(el.getAttribute && el.getAttribute(attr));
+    if (value) silmarilPushUnique(selectors, '[' + attr + '=' + silmarilCssString(value) + ']');
+  });
+  var role = silmarilClean(el.getAttribute && el.getAttribute('role'));
+  if (role) silmarilPushUnique(selectors, '[role=' + silmarilCssString(role) + ']');
+  var label = silmarilGetLabel(el);
+  if (role && label) silmarilPushUnique(selectors, '[role=' + silmarilCssString(role) + '][aria-label=' + silmarilCssString(label) + ']');
+  if (tag === 'button' && label) silmarilPushUnique(selectors, 'button[aria-label=' + silmarilCssString(label) + ']');
+  if ((tag === 'input' || tag === 'textarea' || tag === 'select') && label) {
+    var labels = [];
+    try { labels = Array.from(el.labels || []); } catch (_) { labels = []; }
+    if (labels.length > 0) {
+      var labelEl = labels[0];
+      var labelFor = silmarilClean(labelEl.getAttribute && labelEl.getAttribute('for'));
+      if (labelFor) silmarilPushUnique(selectors, '#' + silmarilCssEscape(labelFor));
+    }
+  }
+  var className = silmarilClean(el.getAttribute && el.getAttribute('class'));
+  if (className) {
+    var classes = className.split(/\s+/).filter(Boolean).slice(0, 3);
+    if (classes.length > 0) {
+      silmarilPushUnique(selectors, tag + classes.map(function(c){ return '.' + silmarilCssEscape(c); }).join(''));
+    }
+  }
+  if (tag) {
+    var parent = el.parentElement;
+    if (parent) {
+      var siblings = Array.from(parent.children || []).filter(function(node){
+        return node && String(node.tagName || '').toLowerCase() === tag;
+      });
+      if (siblings.length > 1) {
+        var index = siblings.indexOf(el) + 1;
+        if (index > 0) silmarilPushUnique(selectors, tag + ':nth-of-type(' + index + ')');
+      } else {
+        silmarilPushUnique(selectors, tag);
+      }
+    } else {
+      silmarilPushUnique(selectors, tag);
+    }
+  }
+  return selectors.slice(0, 6);
+};
+var silmarilCollectRecoveryCandidates = function(root, selector, mode, limit){
+  root = root || document;
+  mode = mode || 'any';
+  limit = limit || 8;
+  var candidateSelector = [
+    'button',
+    'a[href]',
+    'input',
+    'textarea',
+    'select',
+    '[role]',
+    '[data-testid]',
+    '[data-test]',
+    '[data-qa]',
+    '[aria-label]',
+    '[placeholder]',
+    '[contenteditable="true"]'
+  ].join(',');
+  if (mode === 'text') {
+    candidateSelector += ',h1,h2,h3,h4,h5,h6,p,li,td,th,[role="heading"]';
+  }
+  var raw = [];
+  try {
+    raw = Array.from(root.querySelectorAll(candidateSelector));
+  } catch (_) {
+    raw = [];
+  }
+  var seen = [];
+  var candidates = [];
+  raw.forEach(function(node){
+    if (!node || seen.indexOf(node) >= 0) return;
+    seen.push(node);
+    var desc = silmarilDescribeElement(node);
+    if (!desc) return;
+    if (mode === 'editable') {
+      var tag = desc.tag;
+      if (!(tag === 'input' || tag === 'textarea' || tag === 'select' || !!node.isContentEditable)) return;
+    }
+    if (mode === 'action' && !(desc.role || desc.tag === 'button' || desc.tag === 'a' || desc.tag === 'input' || desc.tag === 'textarea' || desc.tag === 'select')) return;
+    if (!desc.selector && (!desc.selectors || desc.selectors.length === 0)) return;
+    candidates.push(desc);
+  });
+  candidates.sort(function(a, b){
+    if (a.visible !== b.visible) return a.visible ? -1 : 1;
+    if (a.disabled !== b.disabled) return a.disabled ? 1 : -1;
+    var aLabel = a.label || a.text || '';
+    var bLabel = b.label || b.text || '';
+    if (!!aLabel !== !!bLabel) return aLabel ? -1 : 1;
+    return 0;
+  });
+  candidates = candidates.slice(0, limit);
+  var suggestedSelectors = [];
+  candidates.forEach(function(candidate){
+    (candidate.selectors || []).forEach(function(candidateSelectorValue){
+      silmarilPushUnique(suggestedSelectors, candidateSelectorValue);
+    });
+  });
+  return {
+    selector: selector,
+    mode: mode,
+    candidateCount: candidates.length,
+    suggestedSelectors: suggestedSelectors.slice(0, limit),
+    candidates: candidates
   };
 };
 var silmarilResolveRoot = function(rootSelector){
@@ -1703,6 +1932,49 @@ function New-SilmarilActionabilityStructuredErrorMessage {
 
   if ($null -ne $Actionability) {
     $payload['actionability'] = $Actionability
+
+    $actionabilityProps = @(Get-SilmarilPropertyNames -InputObject $Actionability)
+    if (($actionabilityProps -contains "recovery") -and $null -ne $Actionability.recovery) {
+      $payload["recovery"] = $Actionability.recovery
+      $recoveryProps = @(Get-SilmarilPropertyNames -InputObject $Actionability.recovery)
+      if (($recoveryProps -contains "suggestedSelectors") -and $null -ne $Actionability.recovery.suggestedSelectors) {
+        $payload["suggestedSelectors"] = @($Actionability.recovery.suggestedSelectors)
+      }
+      if (($recoveryProps -contains "candidates") -and $null -ne $Actionability.recovery.candidates) {
+        $payload["candidates"] = @($Actionability.recovery.candidates)
+      }
+    }
+  }
+
+  return (New-SilmarilStructuredErrorMessage -Payload $payload)
+}
+
+function New-SilmarilSelectorNotFoundStructuredErrorMessage {
+  param(
+    [string]$CommandName,
+    [string]$InputSelector,
+    [string]$NormalizedSelector = '',
+    [AllowNull()]
+    [object]$Recovery = $null
+  )
+
+  $payload = [ordered]@{
+    code               = 'NOT_FOUND'
+    message            = "No element matched selector for ${CommandName}: $InputSelector"
+    hint               = 'Inspect suggestedSelectors or run snapshot/query --visible-only to choose a current target.'
+    inputSelector      = $InputSelector
+    normalizedSelector = $NormalizedSelector
+  }
+
+  if ($null -ne $Recovery) {
+    $payload["recovery"] = $Recovery
+    $recoveryProps = @(Get-SilmarilPropertyNames -InputObject $Recovery)
+    if (($recoveryProps -contains "suggestedSelectors") -and $null -ne $Recovery.suggestedSelectors) {
+      $payload["suggestedSelectors"] = @($Recovery.suggestedSelectors)
+    }
+    if (($recoveryProps -contains "candidates") -and $null -ne $Recovery.candidates) {
+      $payload["candidates"] = @($Recovery.candidates)
+    }
   }
 
   return (New-SilmarilStructuredErrorMessage -Payload $payload)
@@ -1815,7 +2087,8 @@ function Find-SilmarilTargetFromState {
 function Throw-SilmarilTargetAmbiguity {
   param(
     [int]$Port,
-    [string]$RequestedUrlMatch,
+    [string]$SelectorKind,
+    [string]$RequestedValue,
     [object[]]$Candidates
   )
 
@@ -1826,12 +2099,20 @@ function Throw-SilmarilTargetAmbiguity {
 
   $payload = [ordered]@{
     code              = "TARGET_AMBIGUOUS"
-    message           = "Multiple page targets matched regex: $RequestedUrlMatch"
-    hint              = "Refine --url-match, use --target-id, or pin a target with $(Get-SilmarilCliName) target-pin."
+    message           = "Multiple page targets matched ${SelectorKind}: $RequestedValue"
+    hint              = "Refine the page selector, use --page-id, or pin a target with $(Get-SilmarilCliName) set-page."
     port              = $Port
-    requestedUrlMatch = $RequestedUrlMatch
+    selectorKind      = $SelectorKind
+    requestedValue    = $RequestedValue
     candidateCount    = $candidateList.Count
     candidates        = $candidateList
+  }
+
+  switch ($SelectorKind) {
+    "url-match" { $payload["requestedUrlMatch"] = $RequestedValue }
+    "url-contains" { $payload["requestedUrlContains"] = $RequestedValue }
+    "title-match" { $payload["requestedTitleMatch"] = $RequestedValue }
+    "title-contains" { $payload["requestedTitleContains"] = $RequestedValue }
   }
 
   throw (New-SilmarilStructuredErrorMessage -Payload $payload)
@@ -1908,11 +2189,21 @@ function Resolve-SilmarilPageTarget {
     [int]$Port = 9222,
     [string]$TargetId = $null,
     [string]$UrlMatch = $null,
+    [string]$UrlContains = $null,
+    [string]$TitleMatch = $null,
+    [string]$TitleContains = $null,
     [switch]$IgnoreSessionState
   )
 
-  if (-not [string]::IsNullOrWhiteSpace($TargetId) -and -not [string]::IsNullOrWhiteSpace($UrlMatch)) {
-    throw "Use either --target-id or --url-match, not both."
+  $targetSelectorCount = 0
+  foreach ($candidate in @($TargetId, $UrlMatch, $UrlContains, $TitleMatch, $TitleContains)) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+      $targetSelectorCount += 1
+    }
+  }
+
+  if ($targetSelectorCount -gt 1) {
+    throw "Use only one page target selector: --target-id/--page-id, --url-match, --url-contains, --title-match, or --title-contains."
   }
 
   $pages = Get-SilmarilPageTargets -Port $Port
@@ -1952,39 +2243,83 @@ function Resolve-SilmarilPageTarget {
     $selectionMode = "explicit-target-id"
     $targetStateSource = "explicit-target-id"
   }
-  elseif (-not [string]::IsNullOrWhiteSpace($UrlMatch)) {
-    try {
-      [void][regex]::new($UrlMatch)
+  elseif (
+    -not [string]::IsNullOrWhiteSpace($UrlMatch) -or
+    -not [string]::IsNullOrWhiteSpace($UrlContains) -or
+    -not [string]::IsNullOrWhiteSpace($TitleMatch) -or
+    -not [string]::IsNullOrWhiteSpace($TitleContains)
+  ) {
+    $selectorKind = ""
+    $requestedValue = ""
+    $targetMatches = @()
+
+    if (-not [string]::IsNullOrWhiteSpace($UrlMatch)) {
+      try {
+        [void][regex]::new($UrlMatch)
+      }
+      catch {
+        throw "Invalid --url-match regex: $UrlMatch"
+      }
+
+      $selectorKind = "url-match"
+      $requestedValue = $UrlMatch
+      $targetMatches = @($pages | Where-Object {
+        $u = [string]$_.url
+        -not [string]::IsNullOrWhiteSpace($u) -and $u -match $UrlMatch
+      })
     }
-    catch {
-      throw "Invalid --url-match regex: $UrlMatch"
+    elseif (-not [string]::IsNullOrWhiteSpace($UrlContains)) {
+      $selectorKind = "url-contains"
+      $requestedValue = $UrlContains
+      $targetMatches = @($pages | Where-Object {
+        $u = [string]$_.url
+        -not [string]::IsNullOrWhiteSpace($u) -and $u.IndexOf($UrlContains, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+      })
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($TitleMatch)) {
+      try {
+        [void][regex]::new($TitleMatch)
+      }
+      catch {
+        throw "Invalid --title-match regex: $TitleMatch"
+      }
+
+      $selectorKind = "title-match"
+      $requestedValue = $TitleMatch
+      $targetMatches = @($pages | Where-Object {
+        $t = [string]$_.title
+        -not [string]::IsNullOrWhiteSpace($t) -and $t -match $TitleMatch
+      })
+    }
+    else {
+      $selectorKind = "title-contains"
+      $requestedValue = $TitleContains
+      $targetMatches = @($pages | Where-Object {
+        $t = [string]$_.title
+        -not [string]::IsNullOrWhiteSpace($t) -and $t.IndexOf($TitleContains, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+      })
     }
 
-    $urlMatches = @($pages | Where-Object {
-      $u = [string]$_.url
-      -not [string]::IsNullOrWhiteSpace($u) -and $u -match $UrlMatch
-    })
-
-    if ($urlMatches.Count -eq 0) {
-      throw "No page target URL matched regex: $UrlMatch"
+    if ($targetMatches.Count -eq 0) {
+      throw "No page target matched ${selectorKind}: $requestedValue"
     }
 
-    $candidateCount = $urlMatches.Count
-    if ($urlMatches.Count -eq 1) {
-      $selected = $urlMatches[0]
-      $selectionMode = "explicit-url-match"
-      $targetStateSource = "explicit-url-match"
+    $candidateCount = $targetMatches.Count
+    if ($targetMatches.Count -eq 1) {
+      $selected = $targetMatches[0]
+      $selectionMode = "explicit-$selectorKind"
+      $targetStateSource = "explicit-$selectorKind"
     }
     else {
       $pinnedState = Get-SilmarilTargetState -Port $Port -Kind "pinned"
-      $pinnedMatch = Find-SilmarilTargetFromState -Pages $urlMatches -State $pinnedState -StatePrefix "pinned"
+      $pinnedMatch = Find-SilmarilTargetFromState -Pages $targetMatches -State $pinnedState -StatePrefix "pinned"
       if ($null -ne $pinnedMatch) {
         $selected = $pinnedMatch.Target
-        $selectionMode = "explicit-url-match"
+        $selectionMode = "explicit-$selectorKind"
         $targetStateSource = [string]$pinnedMatch.TargetStateSource
       }
       else {
-        Throw-SilmarilTargetAmbiguity -Port $Port -RequestedUrlMatch $UrlMatch -Candidates $urlMatches
+        Throw-SilmarilTargetAmbiguity -Port $Port -SelectorKind $selectorKind -RequestedValue $requestedValue -Candidates $targetMatches
       }
     }
   }
@@ -2037,6 +2372,9 @@ function Resolve-SilmarilPageTarget {
     Port              = $Port
     RequestedTargetId = $TargetId
     RequestedUrlMatch = $UrlMatch
+    RequestedUrlContains = $UrlContains
+    RequestedTitleMatch = $TitleMatch
+    RequestedTitleContains = $TitleContains
     SelectionMode     = $selectionMode
     TargetStateSource = $targetStateSource
     ResolvedTargetId  = [string]$selected.id
@@ -2055,10 +2393,13 @@ function Get-SilmarilPreferredPageTarget {
   param(
     [int]$Port = 9222,
     [string]$TargetId = $null,
-    [string]$UrlMatch = $null
+    [string]$UrlMatch = $null,
+    [string]$UrlContains = $null,
+    [string]$TitleMatch = $null,
+    [string]$TitleContains = $null
   )
 
-  $resolved = Resolve-SilmarilPageTarget -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch
+  $resolved = Resolve-SilmarilPageTarget -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -UrlContains $UrlContains -TitleMatch $TitleMatch -TitleContains $TitleContains
   return $resolved.Target
 }
 
@@ -2098,6 +2439,18 @@ function Add-SilmarilTargetMetadata {
   $Data["targetSelection"] = [string]$TargetContext.SelectionMode
   $Data["targetStateSource"] = [string]$TargetContext.TargetStateSource
   $Data["pageCount"] = [int]$TargetContext.PageCount
+  foreach ($requestName in @("RequestedTargetId", "RequestedUrlMatch", "RequestedUrlContains", "RequestedTitleMatch", "RequestedTitleContains")) {
+    if ($TargetContext.PSObject.Properties.Name -contains $requestName) {
+      $requestValue = [string]$TargetContext.$requestName
+      if (-not [string]::IsNullOrWhiteSpace($requestValue)) {
+        $jsonName = $requestName.Substring(0, 1).ToLowerInvariant() + $requestName.Substring(1)
+        $Data[$jsonName] = $requestValue
+        if ($requestName -eq "RequestedTargetId") {
+          $Data["requestedPageId"] = $requestValue
+        }
+      }
+    }
+  }
   if ($TargetContext.PSObject.Properties.Name -contains "CandidateCount") {
     $candidateCount = [int]$TargetContext.CandidateCount
     if ($candidateCount -gt 0) {
@@ -2120,6 +2473,74 @@ function Add-SilmarilTargetMetadata {
     }
   }
   return $Data
+}
+
+function New-SilmarilTargetSelectionArgs {
+  param(
+    [int]$Port = 9222,
+    [string]$TargetId = $null,
+    [string]$UrlMatch = $null,
+    [string]$UrlContains = $null,
+    [string]$TitleMatch = $null,
+    [string]$TitleContains = $null
+  )
+
+  $targetSelectorCount = 0
+  foreach ($candidate in @($TargetId, $UrlMatch, $UrlContains, $TitleMatch, $TitleContains)) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$candidate)) {
+      $targetSelectorCount += 1
+    }
+  }
+  if ($targetSelectorCount -gt 1) {
+    throw "Use only one page target selector: --target-id/--page-id, --url-match, --url-contains, --title-match, or --title-contains."
+  }
+
+  $args = @{
+    Port = $Port
+  }
+  if (-not [string]::IsNullOrWhiteSpace($TargetId)) {
+    $args["TargetId"] = $TargetId
+  }
+  elseif (-not [string]::IsNullOrWhiteSpace($UrlMatch)) {
+    $args["UrlMatch"] = $UrlMatch
+  }
+  elseif (-not [string]::IsNullOrWhiteSpace($UrlContains)) {
+    $args["UrlContains"] = $UrlContains
+  }
+  elseif (-not [string]::IsNullOrWhiteSpace($TitleMatch)) {
+    $args["TitleMatch"] = $TitleMatch
+  }
+  elseif (-not [string]::IsNullOrWhiteSpace($TitleContains)) {
+    $args["TitleContains"] = $TitleContains
+  }
+
+  return $args
+}
+
+function Get-SilmarilCommonTargetArgumentValues {
+  param(
+    [hashtable]$Common
+  )
+
+  $values = [ordered]@{
+    TargetId      = $null
+    UrlMatch      = $null
+    UrlContains   = $null
+    TitleMatch    = $null
+    TitleContains = $null
+  }
+
+  if ($null -eq $Common) {
+    return $values
+  }
+
+  foreach ($name in @("TargetId", "UrlMatch", "UrlContains", "TitleMatch", "TitleContains")) {
+    if ($Common.Contains($name) -and -not [string]::IsNullOrWhiteSpace([string]$Common[$name])) {
+      $values[$name] = [string]$Common[$name]
+    }
+  }
+
+  return $values
 }
 
 function Invoke-SilmarilCdpCommand {
@@ -2712,6 +3133,9 @@ function Invoke-SilmarilRuntimeEvaluate {
     [int]$Port = 9222,
     [string]$TargetId = $null,
     [string]$UrlMatch = $null,
+    [string]$UrlContains = $null,
+    [string]$TitleMatch = $null,
+    [string]$TitleContains = $null,
     [switch]$AllowTargetRefresh,
     [switch]$IgnoreSessionStateOnRefresh
   )
@@ -2752,7 +3176,9 @@ function Invoke-SilmarilRuntimeEvaluate {
 
       if ($AllowTargetRefresh -and -not $refreshedTarget) {
         try {
-          $refreshedContext = Resolve-SilmarilPageTarget -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -IgnoreSessionState:$IgnoreSessionStateOnRefresh
+          $targetArgs = New-SilmarilTargetSelectionArgs -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -UrlContains $UrlContains -TitleMatch $TitleMatch -TitleContains $TitleContains
+          $targetArgs["IgnoreSessionState"] = [bool]$IgnoreSessionStateOnRefresh
+          $refreshedContext = Resolve-SilmarilPageTarget @targetArgs
           if ($null -ne $refreshedContext -and $null -ne $refreshedContext.Target) {
             $Target = $refreshedContext.Target
             $refreshedTarget = $true
@@ -3085,7 +3511,10 @@ function Invoke-SilmarilSelectorWait {
     [string]$RootSelector = $null,
     [int]$Port = 9222,
     [string]$TargetId = $null,
-    [string]$UrlMatch = $null
+    [string]$UrlMatch = $null,
+    [string]$UrlContains = $null,
+    [string]$TitleMatch = $null,
+    [string]$TitleContains = $null
   )
 
   $selectorList = @($Selectors | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | ForEach-Object { [string]$_ })
@@ -3281,7 +3710,7 @@ $domSupport
     $effectiveTimeoutSec = ConvertTo-SilmarilTimeoutSec -TimeoutMs $TimeoutMs -PaddingMs 5000 -MinSeconds 20
   }
 
-  $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $effectiveTimeoutSec -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -AllowTargetRefresh
+  $evalResult = Invoke-SilmarilRuntimeEvaluate -Target $Target -Expression $expression -TimeoutSec $effectiveTimeoutSec -Port $Port -TargetId $TargetId -UrlMatch $UrlMatch -UrlContains $UrlContains -TitleMatch $TitleMatch -TitleContains $TitleContains -AllowTargetRefresh
   $value = Get-SilmarilEvalValue -EvalResult $evalResult -CommandName $CommandName
   $recovery = Get-SilmarilRuntimeRecoveryMetadata -InputObject $evalResult
   if ($null -ne $recovery) {
@@ -3388,6 +3817,3 @@ function Read-SilmarilTextFile {
     bytes   = $byteLength
   }
 }
-
-
-

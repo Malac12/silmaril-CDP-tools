@@ -99,6 +99,13 @@ $urls = Invoke-SilmarilJson -CliArgs @('list-urls', '--port', ([string]$Port))
 Assert-SilmarilTrue -Condition ([bool]$urls.ok) -Message 'list-urls failed.'
 Assert-SilmarilTrue -Condition ((@($urls.targets).Count) -gt 0) -Message 'list-urls returned no targets.'
 
+$pages = Invoke-SilmarilJson -CliArgs @('list-pages', '--port', ([string]$Port))
+Assert-SilmarilTrue -Condition ([bool]$pages.ok) -Message 'list-pages failed.'
+Assert-SilmarilTrue -Condition ((@($pages.pages).Count) -gt 0) -Message 'list-pages returned no pages.'
+
+$setPage = Invoke-SilmarilJson -CliArgs @('set-page', '--current', '--yes', '--port', ([string]$Port))
+Assert-SilmarilTrue -Condition ([bool]$setPage.ok) -Message 'set-page failed.'
+
 $setText = Invoke-SilmarilJson -CliArgs @('set-text', '#title', 'Smoke Title Updated', '--yes', '--port', ([string]$Port), '--timeout-ms', '7000')
 Assert-SilmarilTrue -Condition ([bool]$setText.ok) -Message 'set-text failed.'
 
