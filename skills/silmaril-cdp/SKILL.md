@@ -5,111 +5,75 @@ description: Browser automation, DOM inspection, page mutation, wait orchestrati
 
 # Silmaril CDP
 
-Use this skill to operate the local Silmaril toolkit from PowerShell on Windows or PowerShell 7 on macOS.
+Use this skill to operate the local Silmaril toolkit from PowerShell on Windows or PowerShell 7 on macOS. Silmaril is meant to be agent-friendly browser control: reuse browser sessions, target the intended page explicitly, inspect live DOM state, recover from selector failures with structured hints, and keep useful page knowledge in page memory.
 
-## Local path hint
+## Agent Golden Path
 
-- If a `LOCAL_PATHS.md` file exists beside this skill, read it first and treat it as the authoritative local installation path for the toolkit.
-- If `LOCAL_PATHS.md` lists both a Windows and macOS launcher, pick the one that matches the current OS.
+1. Check for an existing CDP browser session: `get-currentUrl --json`.
+2. If unavailable, start one: `openbrowser --json`, then recheck once.
+3. If the intended tab is uncertain, run `list-pages --json`.
+4. Pin the intended page when multiple tabs or target drift are possible: `set-page --url-contains "..." --yes --json`.
+5. On revisited sites or app-like workflows, run `page-memory lookup --json` before rediscovering selectors.
+6. Inspect current UI with `snapshot --json`, `query --json`, `get-text --json`, or `get-dom --json`.
+7. Act only after selector validation or a fresh snapshot: `click ... --yes --json`, `type ... --yes --json`, etc.
+8. After each mutation, wait on one clear signal with a wait command instead of sleeping.
+9. If a selector fails, use the JSON `recovery`, `suggestedSelectors`, and `candidates` before guessing.
+10. Prefer `run` for short repeatable flows once the command sequence is known.
 
-## Locate the toolkit
+## Core Recipes
 
-- Prefer the toolkit path recorded in `LOCAL_PATHS.md` when present.
-- Otherwise prefer `D:\silmaril cdp\silmaril.cmd` in this environment.
-- On macOS, prefer a nearby checkout `silmaril-mac.sh` or `~/silmaril-cdp-tools/silmaril-mac.sh`.
-- If that path is missing, also check `%USERPROFILE%\silmaril-cdp-tools\silmaril.cmd`.
-- If neither exists, look for `silmaril.cmd` or `silmaril-mac.sh` on `PATH` or in a nearby checkout.
-- Invoke from PowerShell with `& '...\silmaril.cmd' ...` on Windows or `& '...\silmaril-mac.sh' ...` on macOS.
+### Reuse Or Open Browser
 
-## Install the toolkit if missing
+Use `get-currentUrl --json` first. If it returns `CDP_UNAVAILABLE` or another no-browser signal, run `openbrowser --json`; otherwise reuse the existing browser.
 
-Use this setup on Windows when the toolkit is not already present:
+### Multi-Tab Targeting
 
-Only clone or copy the toolkit after the user explicitly approves fetching or installing remote code.
+When more than one page may exist:
 
-1. Clone or copy the repository:
+1. Run `list-pages --json`.
+2. Choose one page selector: `--page-id`, `--url-contains`, `--url-match`, `--title-contains`, or `--title-match`.
+3. Pin it with `set-page --url-contains "checkout" --yes --json` when later commands should default to that page.
+4. Pass a page selector directly on commands when you do not want to rely on pinned state.
 
-   `git clone https://github.com/Malac12/silmaril-CDP-tools.git "D:\silmaril cdp"`
+Commands that resolve a page target activate that Chrome tab, so the visible tab follows the page being controlled.
 
-2. Ensure Chrome, Chromium, or Edge is installed.
+### Page Memory
 
-   The toolkit checks standard Windows install paths and falls back to `chrome.exe` on `PATH`.
+Use page memory early when returning to a site, working in a web app, or handling a workflow with non-obvious selectors or pitfalls.
 
-3. Run the toolkit from PowerShell:
+1. Run `page-memory lookup --json`.
+2. If it returns a recommended or strong match, prefer its selectors and playbooks.
+3. Before trusting saved memory for important work, run `page-memory verify --id <memoryId> --json`.
+4. Verification reports selector existence, match counts, visible counts, and first-match role/label/text metadata.
+5. When you discover stable selectors, repeatable playbooks, or important pitfalls, consider saving them back into page memory.
 
-   `& 'D:\silmaril cdp\silmaril.cmd' openbrowser --json`
-   `& 'D:\silmaril cdp\silmaril.cmd' openUrl 'https://example.com' --json`
-   `& 'D:\silmaril cdp\silmaril.cmd' get-text 'body' --json`
+Treat page memory as advisory but high-value: verify when needed, but do not ignore a strong match by default.
 
-This is sufficient for the core CDP workflow. No machine-wide PowerShell execution policy change is required because `silmaril.cmd` invokes PowerShell with `ExecutionPolicy Bypass`.
+### Selector Failure Recovery
 
-On macOS, use the shell launcher:
+When a selector command fails in JSON mode:
 
-`./silmaril-mac.sh openbrowser --json`
-`./silmaril-mac.sh openUrl 'https://example.com' --json`
-`./silmaril-mac.sh get-text 'body' --json`
+1. Inspect `recovery.suggestedSelectors`, top-level `suggestedSelectors`, `candidates`, labels, roles, visibility, and disabled state.
+2. Retry the best suggested stable selector first.
+3. If recovery candidates are weak, run `snapshot --json` for refs or `query --visible-only --json` for visible rows.
+4. Use `get-dom` when debugging markup; it is DOM-first and reports visibility metadata.
 
-## Default workflow
+Do not guess a new selector when structured recovery data is available.
 
-1. Check for an existing CDP browser session first with a lightweight command such as `get-currentUrl --json`.
-2. If the session check succeeds, reuse that browser instead of opening a new one.
-3. If the session check returns `CDP_UNAVAILABLE` or another no-browser signal, start a CDP browser with `openbrowser --json`, then recheck once with `get-currentUrl --json`.
-4. After attaching to the page you plan to use, check `page-memory lookup --json` early when the page might be a revisit, an app-like UI, or a workflow with non-obvious selectors or pitfalls.
-5. If page memory returns a strong match, treat it as the default starting point for selectors, playbooks, and known failure modes.
-6. Navigate with `openUrl` when needed.
-7. If you want ref-based interaction, run `snapshot --json` for visible-page refs or `snapshot --coverage content --json` for a richer content-focused map.
-8. Read page state with `exists`, `get-text`, `query`, `get-dom`, or snapshot refs.
-9. Mutate only after validating selectors or capturing a fresh snapshot.
-10. Wait on one clear synchronization signal after each action.
-11. Prefer `run` for short repeatable flows.
+### Long JavaScript
 
-## Page Memory First
+Put long JavaScript in a file and run `eval-js --file <path> --allow-unsafe-js --yes --json`. Add `--isolate-scope` when rerunning helper-heavy JS on the same live page to avoid top-level redeclaration errors.
 
-Page Memory is one of the highest-leverage parts of Silmaril. Use it early instead of treating it as an optional extra.
+## Command Selection
 
-- Run `page-memory lookup --json` near the start of work when you are revisiting a site, working inside a web app, or dealing with a UI that may have non-obvious selectors, affordances, or pitfalls.
-- If lookup returns a recommended or strong match, prefer its selectors and playbooks over rediscovering the page from scratch.
-- Use `page-memory verify --id <memoryId> --json` before trusting a saved record on a live page when the workflow matters or the page may have changed.
-- When you discover stable selectors, repeatable playbooks, or important pitfalls that would help later runs, consider saving them back into page memory rather than leaving them as one-off chat knowledge.
-- Treat page memory as advisory but high-value: verify it when needed, but bias toward using it rather than ignoring it.
-
-## Operating rules
-
-- Prefer `--json` for almost every command so later steps can parse structured output.
-- Do not launch a fresh browser blindly. Always check whether a CDP session is already available first, and only call `openbrowser` when no session is reachable.
-- Prefer `page-memory lookup --json` early on revisited pages or app-like workflows before spending time rediscovering selectors and behaviors manually.
-- Prefer live DOM commands over `get-source` when choosing selectors or checking rendered state.
-- Selector reads are visibility-aware where that helps normal interaction: `get-text` prefers the first visible match and falls back to the first DOM match only when every match is hidden. `get-dom` stays DOM-first for markup debugging and reports visibility metadata.
-- Plain `query` returns rows in DOM order. Use `query --visible-only` for visible rows first/only, especially on feeds, search results, and pages with hidden mobile/desktop duplicates.
-- Use `snapshot --json` when you want a compact map of the current visible page with reusable refs such as `e1`, `e2`, and `e27`.
-- `snapshot` defaults to `viewport` coverage. If the useful content is below a sticky header or top nav, either scroll that content into view first or use `snapshot --coverage content`.
-- `snapshot --coverage content` keeps the snapshot bounded but prefers richer content roots such as `main` and reaches further below the fold.
-- Treat refs as short-lived. After page-changing navigation or a meaningful content transition, rerun `snapshot` before using refs again.
-- Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
-- When multiple tabs exist, run `list-pages --json`, then use one page selector: `--page-id`, `--url-contains`, `--url-match`, `--title-contains`, or `--title-match`.
-- Prefer `set-page --yes` to make the intended page the default target for the port. `target-show`, `target-pin --yes`, and `target-clear --yes` remain available for lower-level CDP target work.
-- Commands that resolve a page target now activate that tab automatically, so the visible Chrome tab follows the target being controlled.
-- When a selector command fails in JSON mode, inspect `suggestedSelectors`, `candidates`, `recovery`, labels, roles, and visibility before retrying. Do not guess a new selector when recovery data is available.
-- Pass `--yes` for page actions and mutations such as `click`, `type`, `set-text`, `set-html`, and `eval-js`.
-- Treat `eval-js`, `proxy-override`, `proxy-switch`, and `openurl-proxy` as high-risk commands.
-- Use `--allow-unsafe-js` for `eval-js`, or set `SILMARIL_ALLOW_UNSAFE_JS=1` only for a trusted local session.
-- Use `--allow-mitm` for proxy commands, or set `SILMARIL_ALLOW_MITM=1` only for a trusted local session.
-- Keep proxy listeners on loopback addresses unless the user explicitly requests `--allow-nonlocal-bind`.
-- Put long JavaScript in a file and use `eval-js --file` instead of pasting large inline expressions.
-- Add `--isolate-scope` when rerunning helper-heavy JS on the same live page to avoid top-level redeclaration errors.
-- Avoid fixed sleeps when a wait command can express the intended state.
-
-## Command selection
-
-- Use `get-text` for a single text value; selector reads prefer the first visible match.
+- Use `get-text` for one text value; it prefers the first visible match and falls back to the first DOM match only when all matches are hidden.
 - Use `query` for structured multi-row extraction. Add `--visible-only` when the task wants visible page content instead of raw DOM order.
-- Use `get-dom` to debug selector or markup issues. Selector mode is DOM-first and reports `selectionPolicy`, `selectedMatch`, `selectedVisible`, `matchedCount`, and `visibleCount` in JSON output.
-- Use `snapshot` when a balanced page map plus short refs is more useful than raw selectors.
-- Use `get-source` only when raw response HTML matters more than the rendered DOM.
+- Use `get-dom` for selector or markup debugging. Selector mode is DOM-first and reports `selectionPolicy`, `selectedMatch`, `selectedVisible`, `matchedCount`, and `visibleCount`.
+- Use `snapshot --json` for a compact visible-page map with reusable refs such as `e1`, `e2`, and `e27`.
+- Use `snapshot --coverage content --json` when useful content is below sticky navigation or outside the first viewport.
+- Use `get-source` only when raw response HTML matters more than rendered DOM.
 - Use `wait-for`, `wait-for-any`, `wait-for-gone`, `wait-for-visible-count`, `wait-for-count`, `wait-until-js`, or `wait-for-mutation` to synchronize.
-- Prefer `wait-for-visible-count` or `wait-for-count` over raw JS when waiting for list/feed growth.
-- Use `page-memory lookup --json` early when revisiting a page/app and reusable selectors, pitfalls, or playbooks might already be stored.
-- Use `page-memory verify --id <memoryId> --json` before trusting saved memory on a live page; verification includes selector existence, counts, visible counts, and first-match role/label/text metadata.
+- Prefer `wait-for-visible-count` or `wait-for-count` over raw JS when waiting for list or feed growth.
 
 Ref-aware selector commands:
 
@@ -123,6 +87,50 @@ Ref-aware selector commands:
 - `scroll`
 
 `scroll --container` also accepts a ref.
+
+## Operating Rules
+
+- Prefer `--json` for almost every command so later steps can parse structured output.
+- Do not launch a fresh browser blindly. Check for a reachable CDP session first.
+- Prefer live DOM commands over `get-source` when choosing selectors or checking rendered state.
+- Prefer stable selectors such as `data-test`, `data-testid`, semantic IDs, and meaningful attributes.
+- Treat snapshot refs as short-lived. After navigation or a meaningful content transition, rerun `snapshot`.
+- Pass `--yes` for page actions and mutations such as `click`, `type`, `set-text`, `set-html`, and `eval-js`.
+- Use only one page selector per command: `--page-id`, `--target-id`, `--url-contains`, `--url-match`, `--title-contains`, or `--title-match`.
+- Prefer `set-page --yes` over lower-level target pinning. `target-show`, `target-pin --yes`, and `target-clear --yes` remain available for CDP target work.
+- Treat `eval-js`, `proxy-override`, `proxy-switch`, and `openurl-proxy` as high-risk commands.
+- Use `--allow-unsafe-js` for `eval-js`, or set `SILMARIL_ALLOW_UNSAFE_JS=1` only for a trusted local session.
+- Use `--allow-mitm` for proxy commands, or set `SILMARIL_ALLOW_MITM=1` only for a trusted local session.
+- Keep proxy listeners on loopback addresses unless the user explicitly requests `--allow-nonlocal-bind`.
+- Avoid fixed sleeps when a wait command can express the intended state.
+
+## Locate The Toolkit
+
+- If a `LOCAL_PATHS.md` file exists beside this skill, read it first and treat it as the authoritative local installation path.
+- Prefer the toolkit path recorded in `LOCAL_PATHS.md` when present.
+- Otherwise prefer `D:\silmaril cdp\silmaril.cmd` in this environment.
+- On macOS, prefer a nearby checkout `silmaril-mac.sh` or `~/silmaril-cdp-tools/silmaril-mac.sh`.
+- If that path is missing, also check `%USERPROFILE%\silmaril-cdp-tools\silmaril.cmd`.
+- If neither exists, look for `silmaril.cmd` or `silmaril-mac.sh` on `PATH` or in a nearby checkout.
+- Invoke from PowerShell with `& '...\silmaril.cmd' ...` on Windows or `& '...\silmaril-mac.sh' ...` on macOS.
+
+## Install If Missing
+
+Only clone or copy the toolkit after the user explicitly approves fetching or installing remote code.
+
+Windows setup:
+
+1. Clone or copy the repository: `git clone https://github.com/Malac12/silmaril-CDP-tools.git "D:\silmaril cdp"`.
+2. Ensure Chrome, Chromium, or Edge is installed.
+3. Run a smoke command: `& 'D:\silmaril cdp\silmaril.cmd' openbrowser --json`.
+
+macOS setup:
+
+1. Use the shell launcher: `./silmaril-mac.sh openbrowser --json`.
+2. Then run `./silmaril-mac.sh openUrl 'https://example.com' --json`.
+3. Read a simple value with `./silmaril-mac.sh get-text 'body' --json`.
+
+No machine-wide PowerShell execution policy change is required on Windows because `silmaril.cmd` invokes PowerShell with `ExecutionPolicy Bypass`.
 
 ## References
 
